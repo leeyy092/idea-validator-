@@ -7,12 +7,17 @@ from datetime import datetime, timedelta
 
 load_dotenv()
 
-st.set_page_config(page_title="创业想法验证器", page_icon="🧭", layout="centered")
+st.set_page_config(
+    page_title="创业想法验证器",
+    page_icon="🧭",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
 
 api_key = os.getenv("ANTHROPIC_API_KEY")
 if not api_key:
-    st.error("⚠️ 未检测到 ANTHROPIC_API_KEY。请创建 .env 文件并填入你的 API Key。")
-    st.code("cp .env.example .env\n# 然后编辑 .env 文件", language="bash")
+    st.error("⚠️ 未检测到 ANTHROPIC_API_KEY")
+    st.code("在 Streamlit Cloud 的 Advanced Settings → Secrets 中配置\nANTHROPIC_API_KEY = \"sk-xxx\"", language="toml")
     st.stop()
 
 client = Anthropic(api_key=api_key)
@@ -42,22 +47,6 @@ def get_pending_tasks():
     return pending
 
 
-# ===== Session State =====
-if "step" not in st.session_state:
-    st.session_state.step = 1
-if "idea" not in st.session_state:
-    st.session_state.idea = ""
-if "followup_qs" not in st.session_state:
-    st.session_state.followup_qs = []
-if "followup_answers" not in st.session_state:
-    st.session_state.followup_answers = {}
-if "context" not in st.session_state:
-    st.session_state.context = {}
-if "report" not in st.session_state:
-    st.session_state.report = None
-
-
-# ===== Functions =====
 def generate_followup_questions(idea):
     prompt = f"""你是一位极其直接、不留情面的商业验证顾问。用户有一个创业想法，你要用3个问题直接戳破他的假设，逼他面对现实。
 
@@ -159,7 +148,6 @@ def generate_report(idea, followup_answers, time_status, capital_level):
 
 
 def parse_report(report):
-    """Parse report into sections."""
     sections = {}
     current_section = None
     current_content = []
@@ -194,11 +182,224 @@ def parse_report(report):
     return sections
 
 
-# ===== Header =====
-st.title("🧭 创业想法验证器")
-st.caption("不帮你做梦，帮你算清账。输出一张可执行的决策卡片。")
+# ===== Session State =====
+if "step" not in st.session_state:
+    st.session_state.step = 1
+if "idea" not in st.session_state:
+    st.session_state.idea = ""
+if "followup_qs" not in st.session_state:
+    st.session_state.followup_qs = []
+if "followup_answers" not in st.session_state:
+    st.session_state.followup_answers = {}
+if "context" not in st.session_state:
+    st.session_state.context = {}
+if "report" not in st.session_state:
+    st.session_state.report = None
 
-# Check pending tasks
+
+# ===== Custom CSS =====
+st.markdown("""
+<style>
+    /* Hide default Streamlit elements */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stDeployButton {display: none !important;}
+
+    /* Global typography */
+    .main {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        max-width: 720px;
+        margin: 0 auto;
+    }
+
+    /* Hero section */
+    .hero {
+        text-align: center;
+        padding: 3rem 1rem 2rem;
+        background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
+        border-radius: 16px;
+        margin-bottom: 2rem;
+        color: white;
+    }
+    .hero h1 {
+        font-size: 2.2rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        letter-spacing: -0.02em;
+    }
+    .hero p {
+        font-size: 1rem;
+        opacity: 0.8;
+        margin: 0;
+    }
+    .hero-icon {
+        font-size: 3rem;
+        margin-bottom: 0.5rem;
+    }
+
+    /* Cards */
+    .stCard {
+        background: white;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+        border: 1px solid #e2e8f0;
+        margin-bottom: 1rem;
+    }
+
+    /* Input styling */
+    .stTextArea textarea {
+        border-radius: 10px !important;
+        border: 1.5px solid #cbd5e1 !important;
+        font-size: 1rem !important;
+        padding: 1rem !important;
+        line-height: 1.6 !important;
+    }
+    .stTextArea textarea:focus {
+        border-color: #2563eb !important;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
+    }
+
+    /* Selectbox styling */
+    .stSelectbox > div > div {
+        border-radius: 10px !important;
+        border: 1.5px solid #cbd5e1 !important;
+    }
+
+    /* Buttons */
+    .stButton > button {
+        border-radius: 10px !important;
+        font-weight: 600 !important;
+        padding: 0.75rem 1.5rem !important;
+        font-size: 1rem !important;
+        transition: all 0.2s ease !important;
+    }
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+        border: none !important;
+        box-shadow: 0 4px 14px rgba(37,99,235,0.3) !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 20px rgba(37,99,235,0.4) !important;
+    }
+
+    /* Section titles */
+    .section-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #1e293b;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #e2e8f0;
+    }
+
+    /* Verdict cards */
+    .verdict-green {
+        background: linear-gradient(135deg, #dcfce7, #f0fdf4);
+        border-left: 4px solid #22c55e;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+    }
+    .verdict-yellow {
+        background: linear-gradient(135deg, #fef9c3, #fefce8);
+        border-left: 4px solid #eab308;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+    }
+    .verdict-red {
+        background: linear-gradient(135deg, #fee2e2, #fef2f2);
+        border-left: 4px solid #ef4444;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Info badges */
+    .info-badge {
+        display: inline-block;
+        background: #f1f5f9;
+        border-radius: 20px;
+        padding: 0.35rem 0.9rem;
+        font-size: 0.85rem;
+        color: #475569;
+        margin-bottom: 1rem;
+    }
+
+    /* Question cards */
+    .question-card {
+        background: #f8fafc;
+        border-radius: 12px;
+        padding: 1.25rem;
+        margin-bottom: 0.75rem;
+        border: 1px solid #e2e8f0;
+    }
+    .question-label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #2563eb;
+        margin-bottom: 0.5rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    /* Action items */
+    .action-item {
+        background: white;
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        margin-bottom: 0.75rem;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+
+    /* Spinner */
+    .stSpinner > div {
+        border-color: #2563eb !important;
+    }
+
+    /* Divider */
+    hr {
+        border-color: #e2e8f0 !important;
+        margin: 2rem 0 !important;
+    }
+
+    /* Caption */
+    .stCaption {
+        color: #94a3b8 !important;
+        font-size: 0.8rem !important;
+    }
+
+    /* Expander */
+    .streamlit-expanderHeader {
+        font-size: 0.95rem !important;
+        color: #475569 !important;
+        background: #f8fafc !important;
+        border-radius: 10px !important;
+    }
+
+    /* Date input */
+    .stDateInput > div > div {
+        border-radius: 8px !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+# ===== Hero Section =====
+st.markdown("""
+<div class="hero">
+    <div class="hero-icon">🧭</div>
+    <h1>创业想法验证器</h1>
+    <p>用一句话说清楚你的想法，AI 帮你验证 + 输出行动路线图</p>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ===== Pending Tasks Alert =====
 pending = get_pending_tasks()
 if pending:
     with st.container(border=True):
@@ -216,11 +417,14 @@ if pending:
 
 # ===== STEP 1: Idea Input =====
 if st.session_state.step == 1:
+    st.markdown("<div class='section-title'>第一步：描述你的想法</div>", unsafe_allow_html=True)
+
     idea = st.text_area(
-        "你想做什么生意/服务？（一句话说清楚）",
+        "",
         value=st.session_state.idea,
         placeholder="例如：帮二三线城市的制造业工厂做抖音短视频代运营，按月收费",
-        height=80,
+        height=100,
+        label_visibility="collapsed",
     )
 
     col1, col2 = st.columns(2)
@@ -237,7 +441,7 @@ if st.session_state.step == 1:
             key="capital_level",
         )
 
-    if st.button("下一步：回答关键问题", use_container_width=True):
+    if st.button("下一步：回答关键问题", use_container_width=True, type="primary"):
         if not idea.strip():
             st.warning("请先描述你想做什么。")
         else:
@@ -252,17 +456,20 @@ if st.session_state.step == 1:
 
 # ===== STEP 2: Follow-up Questions =====
 elif st.session_state.step == 2:
-    st.subheader("💬 回答这 3 个关键问题")
-    st.info(f"你的想法：{st.session_state.idea}")
+    st.markdown("<div class='section-title'>第二步：回答关键追问</div>", unsafe_allow_html=True)
+
+    st.markdown(f"<div class='info-badge'>💡 你的想法：{st.session_state.idea}</div>", unsafe_allow_html=True)
     st.caption("这些问题是 AI 根据你的想法生成的，目的是逼你想清楚最关键的细节。")
 
     for i, q in enumerate(st.session_state.followup_qs):
+        st.markdown(f"<div class='question-label'>问题 {i+1}</div>", unsafe_allow_html=True)
         st.session_state.followup_answers[q] = st.text_area(
-            f"问题 {i+1}：{q}",
+            q,
             value=st.session_state.followup_answers.get(q, ""),
             key=f"fq_{i}",
             height=80,
             placeholder="直接回答，不要绕弯子",
+            label_visibility="collapsed",
         )
 
     col1, col2 = st.columns(2)
@@ -271,7 +478,7 @@ elif st.session_state.step == 2:
             st.session_state.step = 1
             st.rerun()
     with col2:
-        if st.button("生成决策卡片", use_container_width=True, type="primary"):
+        if st.button("生成验证路线图", use_container_width=True, type="primary"):
             if not all(st.session_state.followup_answers.get(q, "").strip() for q in st.session_state.followup_qs):
                 st.warning("请回答所有问题。")
             else:
@@ -289,26 +496,18 @@ elif st.session_state.step == 2:
 # ===== STEP 3: Report =====
 elif st.session_state.step == 3 and st.session_state.report:
     report = st.session_state.report
-
-    # Parse report sections
     sections = parse_report(report)
+
+    st.markdown("<div class='section-title'>你的验证路线图</div>", unsafe_allow_html=True)
 
     # Verdict card
     verdict = sections.get("判定", "无法解析")
-    verdict_color = "green"
     if "换方向" in verdict or "不建议" in verdict:
-        verdict_color = "red"
+        st.markdown(f"<div class='verdict-red'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
     elif "谨慎" in verdict:
-        verdict_color = "orange"
-
-    with st.container(border=True):
-        st.subheader("🎯 判定")
-        if verdict_color == "green":
-            st.success(verdict)
-        elif verdict_color == "red":
-            st.error(verdict)
-        else:
-            st.warning(verdict)
+        st.markdown(f"<div class='verdict-yellow'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div class='verdict-green'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
 
     # 3 actions
     actions = sections.get("本周3件事", "")
@@ -334,17 +533,16 @@ elif st.session_state.step == 3 and st.session_state.report:
 
     # Action tracking
     st.divider()
-    st.subheader("📅 任务追踪")
+    st.markdown("<div class='section-title'>📅 任务追踪</div>", unsafe_allow_html=True)
     st.caption("给这3件事设定完成日期，我们会提醒你")
 
     action_lines = [line.strip() for line in actions.split("\n") if line.strip().startswith("1.") or line.strip().startswith("2.") or line.strip().startswith("3.")]
 
-    col_save = True
     tasks_to_save = {}
     for i, line in enumerate(action_lines[:3]):
         c1, c2 = st.columns([3, 1])
         with c1:
-            st.write(f"{line}")
+            st.markdown(f"<div class='action-item'>{line}</div>", unsafe_allow_html=True)
         with c2:
             due = st.date_input(
                 f"截止日期 {i+1}",
@@ -362,7 +560,7 @@ elif st.session_state.step == 3 and st.session_state.report:
         existing = load_tasks()
         existing.update(tasks_to_save)
         save_tasks(existing)
-        st.success("任务已保存。下次打开时会提醒你。")
+        st.success("✅ 任务已保存。下次打开时会提醒你。")
 
     st.divider()
     col1, col2 = st.columns(2)
