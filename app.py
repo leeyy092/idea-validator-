@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 load_dotenv()
 
 st.set_page_config(
-    page_title="创业想法验证器",
-    page_icon="🧭",
+    page_title="7天冷启动加速器",
+    page_icon="🚀",
     layout="centered",
     initial_sidebar_state="collapsed",
 )
@@ -48,9 +48,9 @@ def get_pending_tasks():
 
 
 def generate_followup_questions(idea):
-    prompt = f"""你是一位极其直接、不留情面的商业验证顾问。用户有一个创业想法，你要用3个问题直接戳破他的假设，逼他面对现实。
+    prompt = f"""你是一位7天启动教练。用户要在一个新方向上7天内拿到第一个结果，你要用3个问题直接戳破他的执行障碍。
 
-用户的想法：{idea}
+用户的方向：{idea}
 
 风格要求：
 - 每个问题都要具体到"名字""数字""日期"
@@ -93,11 +93,11 @@ def default_questions():
 def generate_report(idea, followup_answers, time_status, capital_level):
     answers_text = "\n".join([f"- {k}: {v}" for k, v in followup_answers.items()])
 
-    prompt = f"""你是一位收费 500元/小时的商业验证顾问。用户付费请你帮他验证一个创业想法，你必须给出一份极度精简、可直接执行的交付物。
+    prompt = f"""你是一位7天启动教练。用户要签一份"7天执行合同"，你必须给他一份极度具体、签了就得干的交付物。
 
 【输入信息】
-想法：{idea}
-追问回答：
+启动方向：{idea}
+障碍回答：
 {answers_text}
 时间状态：{time_status}
 资金量级：{capital_level}
@@ -105,28 +105,32 @@ def generate_report(idea, followup_answers, time_status, capital_level):
 【输出格式】
 严格按以下结构输出（Markdown格式）。总字数不超过800字，没有废话。
 
-# 判定
-用一句话给出判定：【建议做 / 谨慎试水 / 建议换方向】
-理由不超过两句话。
+# 教练判定
+用一句话给出判定：【建议7天冲刺 / 谨慎启动 / 建议换方向】
+理由不超过两句话。如果判定是"建议换方向"，直接说为什么，不要给后续动作。
 
-# 本周3件事
-列出3条具体动作。每条格式：
+# 7天三件事（本周必须完成）
+只列3条。每条格式：
 1. 【动作】做什么
    - 对象：找谁/做什么
    - 标准：做到什么程度算完成
    - 时间：建议在哪天完成
+   - 验收：完成的具体标志是什么
 
 # 第一个客户
 逼用户写出一个具体人名。格式：
 - 最可能付费的人：______
 - 你准备怎么联系他：______
 - 他能付多少钱：______
-如果用户写不出人名，直接判定这个想法当前不成立。
+如果用户写不出人名，直接判定这个方向当前不成立，建议换方向。
 
-# 止损线
-- 时间止损：______
-- 金钱止损：______
-- 信号止损：出现什么信号必须停
+# 7天止损线
+- 时间止损：如果哪天还没结果，必须停？
+- 金钱止损：最多再烧多少钱？
+- 信号止损：出现什么信号必须立刻换方向？
+
+# 第8天
+如果7天内完成了以上3件事，第8天应该做什么？只写一句话。
 
 要求：
 - 不超过800字
@@ -155,25 +159,30 @@ def parse_report(report):
     for line in report.split("\n"):
         stripped = line.strip()
         # 支持 # 判定、## 判定、判定：等多种格式
-        if stripped.startswith(("# 判定", "## 判定", "判定：", "【判定】")):
+        if stripped.startswith(("# 教练判定", "## 教练判定", "教练判定：", "【教练判定】", "# 判定", "## 判定", "判定：", "【判定】")):
             if current_section:
                 sections[current_section] = "\n".join(current_content).strip()
-            current_section = "判定"
+            current_section = "教练判定"
             current_content = []
-        elif stripped.startswith(("# 本周3件事", "## 本周3件事", "本周3件事：", "【本周3件事】")):
+        elif stripped.startswith(("# 7天三件事", "## 7天三件事", "7天三件事：", "【7天三件事】", "# 本周3件事", "## 本周3件事", "本周3件事：", "【本周3件事】")):
             if current_section:
                 sections[current_section] = "\n".join(current_content).strip()
-            current_section = "本周3件事"
+            current_section = "7天三件事"
             current_content = []
         elif stripped.startswith(("# 第一个客户", "## 第一个客户", "第一个客户：", "【第一个客户】")):
             if current_section:
                 sections[current_section] = "\n".join(current_content).strip()
             current_section = "第一个客户"
             current_content = []
-        elif stripped.startswith(("# 止损线", "## 止损线", "止损线：", "【止损线】")):
+        elif stripped.startswith(("# 7天止损线", "## 7天止损线", "7天止损线：", "【7天止损线】", "# 止损线", "## 止损线", "止损线：", "【止损线】")):
             if current_section:
                 sections[current_section] = "\n".join(current_content).strip()
-            current_section = "止损线"
+            current_section = "7天止损线"
+            current_content = []
+        elif stripped.startswith(("# 第8天", "## 第8天", "第8天：", "【第8天】")):
+            if current_section:
+                sections[current_section] = "\n".join(current_content).strip()
+            current_section = "第8天"
             current_content = []
         elif current_section:
             current_content.append(line)
@@ -394,9 +403,9 @@ st.markdown("""
 # ===== Hero Section =====
 st.markdown("""
 <div class="hero">
-    <div class="hero-icon">🧭</div>
-    <h1>创业想法验证器</h1>
-    <p>用一句话说清楚你的想法，AI 帮你验证 + 输出行动路线图</p>
+    <div class="hero-icon">🚀</div>
+    <h1>7天冷启动加速器</h1>
+    <p>用7天从想法到第一个客户，AI 给你执行合同 + 盯着你拿到结果</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -419,7 +428,7 @@ if pending:
 
 # ===== STEP 1: Idea Input =====
 if st.session_state.step == 1:
-    st.markdown("<div class='section-title'>第一步：描述你的想法</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>第一步：锁定你的启动方向</div>", unsafe_allow_html=True)
 
     idea = st.text_area(
         "",
@@ -443,7 +452,7 @@ if st.session_state.step == 1:
             key="capital_level",
         )
 
-    if st.button("下一步：回答关键问题", use_container_width=True, type="primary"):
+    if st.button("下一步：拆解执行障碍", use_container_width=True, type="primary"):
         if not idea.strip():
             st.warning("请先描述你想做什么。")
         else:
@@ -455,7 +464,7 @@ if st.session_state.step == 1:
                 if k.startswith("fq_"):
                     del st.session_state[k]
             st.session_state.followup_answers = {}
-            with st.spinner("正在分析你的想法..."):
+            with st.spinner("正在拆解你的执行障碍..."):
                 st.session_state.followup_qs = generate_followup_questions(idea)
             st.session_state.step = 2
             st.rerun()
@@ -463,13 +472,13 @@ if st.session_state.step == 1:
 
 # ===== STEP 2: Follow-up Questions =====
 elif st.session_state.step == 2:
-    st.markdown("<div class='section-title'>第二步：回答关键追问</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>第二步：拆解执行障碍</div>", unsafe_allow_html=True)
 
-    st.markdown(f"<div class='info-badge'>💡 你的想法：{st.session_state.idea}</div>", unsafe_allow_html=True)
-    st.caption("这些问题是 AI 根据你的想法生成的，目的是逼你想清楚最关键的细节。")
+    st.markdown(f"<div class='info-badge'>💡 你的方向：{st.session_state.idea}</div>", unsafe_allow_html=True)
+    st.caption("这些问题逼你想清楚：谁付钱、怎么找到他、扛得住吗。答完就签7天合同。")
 
     for i, q in enumerate(st.session_state.followup_qs):
-        st.markdown(f"<div class='question-label'>问题 {i+1}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='question-label'>障碍 {i+1}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='font-size:1rem; color:#1e293b; margin-bottom:0.5rem; font-weight:500;'>{q}</div>", unsafe_allow_html=True)
         st.text_area(
             "",
@@ -482,19 +491,19 @@ elif st.session_state.step == 2:
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("← 返回修改想法", use_container_width=True):
+        if st.button("← 返回修改方向", use_container_width=True):
             st.session_state.step = 1
             st.rerun()
     with col2:
-        if st.button("生成验证路线图", use_container_width=True, type="primary"):
+        if st.button("生成7天执行合同", use_container_width=True, type="primary"):
             answers = {}
             for i, q in enumerate(st.session_state.followup_qs):
                 answers[q] = st.session_state.get(f"fq_{i}", "")
             if not all(v.strip() for v in answers.values()):
-                st.warning("请回答所有问题。")
+                st.warning("请回答所有障碍。")
             else:
                 st.session_state.followup_answers = answers
-                with st.spinner("正在生成决策卡片..."):
+                with st.spinner("正在生成7天执行合同..."):
                     st.session_state.report = generate_report(
                         st.session_state.idea,
                         st.session_state.followup_answers,
@@ -510,13 +519,14 @@ elif st.session_state.step == 3 and st.session_state.report:
     report = st.session_state.report
     sections = parse_report(report)
 
-    st.markdown("<div class='section-title'>你的验证路线图</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>你的7天执行合同</div>", unsafe_allow_html=True)
 
     # 先取默认值，避免后面 action_lines 报错
-    actions = sections.get("本周3件事", "")
+    actions = sections.get("7天三件事", sections.get("本周3件事", ""))
     first_customer = sections.get("第一个客户", "")
-    stop_loss = sections.get("止损线", "")
-    verdict = sections.get("判定", "")
+    stop_loss = sections.get("7天止损线", sections.get("止损线", ""))
+    verdict = sections.get("教练判定", sections.get("判定", ""))
+    day8 = sections.get("第8天", "")
 
     # Fallback: if parsing failed completely, show raw report
     if not sections:
@@ -525,14 +535,14 @@ elif st.session_state.step == 3 and st.session_state.report:
     else:
         # Verdict card
         if "换方向" in verdict or "不建议" in verdict:
-            st.markdown(f"<div class='verdict-red'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='verdict-red'><strong>🎯 教练判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
         elif "谨慎" in verdict:
-            st.markdown(f"<div class='verdict-yellow'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='verdict-yellow'><strong>🎯 教练判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<div class='verdict-green'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='verdict-green'><strong>🎯 教练判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
 
         with st.container(border=True):
-            st.subheader("⚡ 本周3件事")
+            st.subheader("⚡ 7天三件事（签了就得干）")
             st.markdown(actions)
 
         with st.container(border=True):
@@ -540,11 +550,16 @@ elif st.session_state.step == 3 and st.session_state.report:
             st.markdown(first_customer)
 
         with st.container(border=True):
-            st.subheader("🛑 止损线")
+            st.subheader("🛑 7天止损线")
             st.markdown(stop_loss)
 
+        if day8:
+            with st.container(border=True):
+                st.subheader("📅 第8天")
+                st.markdown(day8)
+
     # Expandable details
-    with st.expander("📊 展开看详细推演（可选）"):
+    with st.expander("📊 展开看完整合同（可选）"):
         st.markdown(report)
 
     # Action tracking
@@ -578,6 +593,23 @@ elif st.session_state.step == 3 and st.session_state.report:
         save_tasks(existing)
         st.success("✅ 任务已保存。下次打开时会提醒你。")
 
+    # CTA: 陪跑入口
+    st.divider()
+    with st.container(border=True):
+        st.subheader("💬 需要人盯着你跑完这7天？")
+        st.markdown("""
+        很多人卡在"知道该做什么，但做不到"。
+
+        **7天陪跑（99元）包含：**
+        - 每天检查你完成了哪件
+        - 卡住了随时问，当天给解法
+        - 第7天复盘，没结果退一半
+
+        **加我微信，备注"7天"：** `你的微信号`
+
+        *(把上面"你的微信号"改成你的真实微信，用户才能找到你)*
+        """)
+
     st.divider()
     col1, col2 = st.columns(2)
     with col1:
@@ -585,7 +617,7 @@ elif st.session_state.step == 3 and st.session_state.report:
             st.session_state.step = 2
             st.rerun()
     with col2:
-        if st.button("🔄 换个新想法", use_container_width=True):
+        if st.button("🔄 换个新方向", use_container_width=True):
             st.session_state.step = 1
             st.session_state.idea = ""
             st.session_state.followup_qs = []
@@ -593,4 +625,4 @@ elif st.session_state.step == 3 and st.session_state.report:
             st.session_state.report = None
             st.rerun()
 
-    st.caption("⚠️ 本报告由 AI 基于你提供的信息生成，仅供参考。")
+    st.caption("⚠️ 本合同由 AI 基于你提供的信息生成，签完就得干。")
