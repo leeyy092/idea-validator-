@@ -449,7 +449,7 @@ if st.session_state.step == 1:
             st.session_state.context["time_status"] = time_status
             st.session_state.context["capital_level"] = capital_level
             # 清除旧的追问 widget key，避免新问题残留旧答案                                                         
-              for k in list(st.session_state.keys()):                                                                   
+            for k in list(st.session_state.keys()):                                                                   
                   if k.startswith("fq_"):                                                                               
                       del st.session_state[k]                                                                           
               st.session_state.followup_answers = {}  
