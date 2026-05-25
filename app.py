@@ -479,7 +479,7 @@ elif st.session_state.step == 2:
               label_visibility="collapsed",                                                                             
           )                                                                                                             
                                                                                                                         
-      col1, col2 = st.columns(2)                                                                                        
+  col1, col2 = st.columns(2)                                                                                        
       with col1:                                                                                                      
           if st.button("← 返回修改想法", use_container_width=True):                                                     
               st.session_state.step = 1                                                                                 
