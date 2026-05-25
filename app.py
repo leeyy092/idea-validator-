@@ -452,7 +452,7 @@ if st.session_state.step == 1:
             for k in list(st.session_state.keys()):                                                                   
                   if k.startswith("fq_"):                                                                               
                       del st.session_state[k]                                                                           
-              st.session_state.followup_answers = {}  
+            st.session_state.followup_answers = {}  
             with st.spinner("正在分析你的想法..."):
                 st.session_state.followup_qs = generate_followup_questions(idea)
             st.session_state.step = 2
