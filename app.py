@@ -448,6 +448,11 @@ if st.session_state.step == 1:
             st.session_state.idea = idea
             st.session_state.context["time_status"] = time_status
             st.session_state.context["capital_level"] = capital_level
+            # 清除旧的追问 widget key，避免新问题残留旧答案                                                         
+              for k in list(st.session_state.keys()):                                                                   
+                  if k.startswith("fq_"):                                                                               
+                      del st.session_state[k]                                                                           
+              st.session_state.followup_answers = {}  
             with st.spinner("正在分析你的想法..."):
                 st.session_state.followup_qs = generate_followup_questions(idea)
             st.session_state.step = 2
@@ -461,36 +466,42 @@ elif st.session_state.step == 2:
     st.markdown(f"<div class='info-badge'>💡 你的想法：{st.session_state.idea}</div>", unsafe_allow_html=True)
     st.caption("这些问题是 AI 根据你的想法生成的，目的是逼你想清楚最关键的细节。")
 
-    for i, q in enumerate(st.session_state.followup_qs):
-        st.markdown(f"<div class='question-label'>问题 {i+1}</div>", unsafe_allow_html=True)
-        st.session_state.followup_answers[q] = st.text_area(
-            q,
-            value=st.session_state.followup_answers.get(q, ""),
-            key=f"fq_{i}",
-            height=80,
-            placeholder="直接回答，不要绕弯子",
-            label_visibility="collapsed",
-        )
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("← 返回修改想法", use_container_width=True):
-            st.session_state.step = 1
-            st.rerun()
-    with col2:
-        if st.button("生成验证路线图", use_container_width=True, type="primary"):
-            if not all(st.session_state.followup_answers.get(q, "").strip() for q in st.session_state.followup_qs):
-                st.warning("请回答所有问题。")
-            else:
-                with st.spinner("正在生成决策卡片..."):
-                    st.session_state.report = generate_report(
-                        st.session_state.idea,
-                        st.session_state.followup_answers,
-                        st.session_state.context["time_status"],
-                        st.session_state.context["capital_level"],
-                    )
-                st.session_state.step = 3
-                st.rerun()
+    for i, q in enumerate(st.session_state.followup_qs):                                                              
+          st.markdown(f"<div class='question-label'>问题 {i+1}</div>", unsafe_allow_html=True)                          
+          st.markdown(f"<div style='font-size:1rem; color:#1e293b; margin-bottom:0.5rem; font-weight:500;'>{q}</div>",  
+  unsafe_allow_html=True)                                                                                               
+          st.text_area(                                                                                                 
+              "",                                                                                                       
+              value=st.session_state.followup_answers.get(q, ""),                                                     
+              key=f"fq_{i}",                                                                                            
+              height=80,                                                                                                
+              placeholder="直接回答，不要绕弯子",                                                                       
+              label_visibility="collapsed",                                                                             
+          )                                                                                                             
+                                                                                                                        
+      col1, col2 = st.columns(2)                                                                                        
+      with col1:                                                                                                      
+          if st.button("← 返回修改想法", use_container_width=True):                                                     
+              st.session_state.step = 1                                                                                 
+              st.rerun()                                                                                                
+      with col2:                                                                                                        
+          if st.button("生成验证路线图", use_container_width=True, type="primary"):                                     
+              answers = {}                                                                                              
+              for i, q in enumerate(st.session_state.followup_qs):                                                    
+                  answers[q] = st.session_state.get(f"fq_{i}", "")                                                      
+              if not all(v.strip() for v in answers.values()):                                                          
+                  st.warning("请回答所有问题。")                                                                        
+              else:                                                                                                     
+                  st.session_state.followup_answers = answers                                                           
+                  with st.spinner("正在生成决策卡片..."):                                                               
+                      st.session_state.report = generate_report(                                                        
+                          st.session_state.idea,                                                                        
+                          st.session_state.followup_answers,                                                            
+                          st.session_state.context["time_status"],                                                      
+                          st.session_state.context["capital_level"],                                                    
+                      )                                                                                                 
+                  st.session_state.step = 3                                                                             
+                  st.rerun()         
 
 
 # ===== STEP 3: Report =====
