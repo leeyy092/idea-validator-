@@ -512,13 +512,18 @@ elif st.session_state.step == 3 and st.session_state.report:
 
     st.markdown("<div class='section-title'>你的验证路线图</div>", unsafe_allow_html=True)
 
+    # 先取默认值，避免后面 action_lines 报错
+    actions = sections.get("本周3件事", "")
+    first_customer = sections.get("第一个客户", "")
+    stop_loss = sections.get("止损线", "")
+    verdict = sections.get("判定", "")
+
     # Fallback: if parsing failed completely, show raw report
     if not sections:
         st.info("AI 返回的报告格式与预期不同，以下是原始内容：")
         st.markdown(report)
     else:
         # Verdict card
-        verdict = sections.get("判定", "无法解析")
         if "换方向" in verdict or "不建议" in verdict:
             st.markdown(f"<div class='verdict-red'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
         elif "谨慎" in verdict:
@@ -526,20 +531,14 @@ elif st.session_state.step == 3 and st.session_state.report:
         else:
             st.markdown(f"<div class='verdict-green'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
 
-        # 3 actions
-        actions = sections.get("本周3件事", "")
         with st.container(border=True):
             st.subheader("⚡ 本周3件事")
             st.markdown(actions)
 
-        # First customer
-        first_customer = sections.get("第一个客户", "")
         with st.container(border=True):
             st.subheader("👤 第一个客户")
             st.markdown(first_customer)
 
-        # Stop loss
-        stop_loss = sections.get("止损线", "")
         with st.container(border=True):
             st.subheader("🛑 止损线")
             st.markdown(stop_loss)
