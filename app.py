@@ -809,8 +809,9 @@ elif st.session_state.step == 3 and st.session_state.report:
                     key=f"due_{i}",
                     label_visibility="collapsed",
                 )
-            tasks_to_save[f"task_{i}"] = {
-                "action": line,                
+            task_id = f"task_{i}"
+            tasks_to_save[task_id] = {
+                "action": line,
                 "due_date": due.strftime("%Y-%m-%d"),
                 "done": False,
             }
@@ -819,13 +820,13 @@ elif st.session_state.step == 3 and st.session_state.report:
             st.session_state.tasks.update(tasks_to_save)
             st.success("已保存。下次在本页打开会看到到期提醒。")
 
-    st.divider()            
+    st.divider()
     c1, c2 = st.columns(2)
-    with c1:            
+    with c1:
         if st.button("← 修改回答", use_container_width=True):
             st.session_state.step = 2
-            st.rerun()            
-    with c2:            
+            st.rerun()
+    with c2:
         if st.button("🔄 验证新想法", use_container_width=True):
             st.session_state.step = 1
             st.session_state.idea = ""
@@ -834,6 +835,6 @@ elif st.session_state.step == 3 and st.session_state.report:
             st.session_state.followup_answers = {}
             st.session_state.report = None
             st.session_state.tasks = {}
-            st.rerun()            
+            st.rerun()
 
     st.caption("报告由 AI 根据你填写的内容生成，不构成投资或法律建议。重要决策请结合自身情况判断。")
