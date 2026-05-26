@@ -4,10 +4,113 @@ import re
 from datetime import datetime, timedelta
 
 import streamlit as st
-from anthropic import Anthropic
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# (provider, env 变量名列表, 默认模型, 显示名)
+LLM_OPTIONS = (
+    ("moonshot", ("MOONSHOT_API_KEY", "KIMI_API_KEY"), "moonshot-v1-32k", "Kimi"),
+    ("deepseek", ("DEEPSEEK_API_KEY",), "deepseek-chat", "DeepSeek"),
+    ("openrouter", ("OPENROUTER_API_KEY",), "anthropic/claude-3.5-sonnet", "OpenRouter"),
+    ("anthropic", ("ANTHROPIC_API_KEY",), "claude-sonnet-4-6", "Claude"),
+)
+
+
+def get_secret(name):
+    val = (os.getenv(name) or "").strip()
+    if not val:
+        try:
+            val = (st.secrets.get(name) or "").strip()
+        except Exception:
+            pass
+    return val
+
+
+def get_provider_key(env_names):
+    for name in env_names:
+        key = get_secret(name)
+        if key:
+            return key, name
+    return None, None
+
+
+def resolve_llm():
+    preferred = get_secret("LLM_PROVIDER").lower()
+    custom_model = get_secret("MOONSHOT_MODEL") or get_secret("LLM_MODEL")
+
+    def pack(provider, key, model, label, env_name):
+        if provider == "moonshot" and custom_model:
+            model = custom_model
+        return provider, key, model, label, env_name
+
+    if preferred:
+        for provider, env_names, model, label in LLM_OPTIONS:
+            if provider == preferred:
+                key, env_name = get_provider_key(env_names)
+                if key:
+                    return pack(provider, key, model, label, env_name)
+    for provider, env_names, model, label in LLM_OPTIONS:
+        key, env_name = get_provider_key(env_names)
+        if key:
+            return pack(provider, key, model, label, env_name)
+    return None, None, None, None, None
+
+
+def call_llm(prompt, max_tokens=600, temperature=0.6):
+    provider, api_key, model, _, _ = resolve_llm()
+    if not provider:
+        raise RuntimeError("未配置 API Key")
+
+    if provider == "anthropic":
+        from anthropic import Anthropic
+
+        client = Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return resp.content[0].text
+
+    from openai import OpenAI
+
+    base_urls = {
+        "moonshot": get_secret("MOONSHOT_BASE_URL") or "https://api.moonshot.cn/v1",
+        "deepseek": "https://api.deepseek.com",
+        "openrouter": "https://openrouter.ai/api/v1",
+    }
+    kwargs = {"api_key": api_key, "base_url": base_urls[provider]}
+    if provider == "openrouter":
+        kwargs["default_headers"] = {
+            "HTTP-Referer": "https://jucaiyy.com",
+            "X-Title": "聚才想法验真",
+        }
+    client = OpenAI(**kwargs)
+    resp = client.chat.completions.create(
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.choices[0].message.content or ""
+
+
+def friendly_api_error(exc):
+    msg = str(exc).lower()
+    if "401" in msg or "authentication" in msg or ("invalid" in msg and "key" in msg):
+        return (
+            "**API Key 无效或已过期。**\n\n"
+            "**若用 Kimi：** 到 https://platform.moonshot.cn/ 创建 **API Key**"
+            "（App 会员 ≠ API Key）。Secrets 里写：\n"
+            '`MOONSHOT_API_KEY = "sk-..."`\n\n'
+            "并**删除**旧的 `ANTHROPIC_API_KEY`，然后 Save → Reboot app。"
+        )
+    if "credit" in msg or "balance" in msg or "billing" in msg or "insufficient" in msg:
+        return "**余额或额度不足**，请到对应平台充值后再试。"
+    return f"调用 AI 时出错：{exc}"
+
 
 PRODUCT_NAME = "聚才 · 想法验真"
 PRODUCT_TAGLINE = "10 分钟拿到一份可执行的 7 天启动合同，逼你找到第一个愿意付钱的人"
@@ -19,17 +122,28 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-api_key = os.getenv("ANTHROPIC_API_KEY")
-if not api_key:
-    st.error("⚠️ 未检测到 ANTHROPIC_API_KEY")
+_llm_provider, _, _, _llm_label, _ = resolve_llm()
+if not _llm_provider:
+    st.error("⚠️ 未检测到 AI 接口密钥")
+    st.markdown(
+        "**用 Kimi（月之暗面）—— 你有会员也要单独拿 API Key：**\n\n"
+        "1. 打开 https://platform.moonshot.cn/ （用 Kimi 同一手机号登录）\n"
+        "2. 左侧 **API Key 管理** → 新建 Key（以 `sk-` 开头）\n"
+        "3. 确认账户有 **API 余额**（会员费通常不含 API 调用，需充值一点）\n"
+        "4. Streamlit → Settings → **Secrets**，粘贴后 **Save** → **Reboot app**"
+    )
     st.code(
-        '在 Streamlit Cloud 的 Advanced Settings → Secrets 中配置\n'
-        'ANTHROPIC_API_KEY = "sk-xxx"',
+        'MOONSHOT_API_KEY = "sk-你的Kimi开放平台密钥"\n'
+        '# 可选：MOONSHOT_MODEL = "moonshot-v1-128k"  # 报告更长时用',
         language="toml",
     )
+    with st.expander("其他可选方式"):
+        st.code(
+            'DEEPSEEK_API_KEY = "sk-..."       # platform.deepseek.com\n'
+            'OPENROUTER_API_KEY = "sk-or-..."  # openrouter.ai',
+            language="toml",
+        )
     st.stop()
-
-client = Anthropic(api_key=api_key)
 
 EXAMPLE_IDEAS = [
     "帮本地餐饮老板做抖音团购引流，按效果抽成",
@@ -85,20 +199,15 @@ Q2: ...
 Q3: ...
 """
     try:
-        resp = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=600,
-            temperature=0.6,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = resp.content[0].text
+        text = call_llm(prompt, max_tokens=600, temperature=0.6)
         questions = []
         for line in text.strip().split("\n"):
             line = line.strip()
             if re.match(r"Q\d+\s*[:：]", line):
                 questions.append(re.split(r"[:：]", line, 1)[1].strip())
         return questions[:3] if len(questions) >= 3 else default_questions()
-    except Exception:
+    except Exception as e:
+        st.session_state.api_error = friendly_api_error(e)
         return default_questions()
 
 
@@ -164,15 +273,9 @@ def generate_report(idea, followup_answers, time_status, capital_level, monthly_
 """
 
     try:
-        resp = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=2800,
-            temperature=0.55,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return resp.content[0].text
+        return call_llm(prompt, max_tokens=2800, temperature=0.55)
     except Exception as e:
-        return f"生成报告时出错：{e}"
+        return f"<!--API_ERROR-->\n{friendly_api_error(e)}"
 
 
 SECTION_HEADERS = {
@@ -429,6 +532,7 @@ def extract_action_lines(actions_text):
 init_session()
 inject_css()
 render_hero()
+st.caption(f"AI 引擎：{_llm_label}")
 render_progress(st.session_state.step)
 
 pending = get_pending_tasks()
@@ -531,6 +635,10 @@ elif st.session_state.step == 2:
     )
     st.caption("诚实回答。编造名字和数字，报告也会骗你。")
 
+    if st.session_state.get("api_error"):
+        st.warning(st.session_state.api_error)
+        st.caption("当前使用默认 3 个问题；修好 API Key 后可返回第一步重新生成专属问题。")
+
     tags = ["第一个客户", "竞争与差异", "现金流与止损"]
     for i, q in enumerate(st.session_state.followup_qs):
         st.markdown(
@@ -575,9 +683,18 @@ elif st.session_state.step == 2:
 # —— Step 3 ——
 elif st.session_state.step == 3 and st.session_state.report:
     report = st.session_state.report
-    sections = parse_report(report)
 
     st.markdown('<div class="section-title">你的 7 天执行合同</div>', unsafe_allow_html=True)
+
+    if report.startswith("<!--API_ERROR-->"):
+        st.error(report.replace("<!--API_ERROR-->\n", "", 1))
+        if st.button("← 返回修改回答", use_container_width=True):
+            st.session_state.step = 2
+            st.session_state.report = None
+            st.rerun()
+        st.stop()
+
+    sections = parse_report(report)
 
     verdict = sections.get("教练判定", "")
     pnl = sections.get("盈亏快算", "")
