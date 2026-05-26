@@ -1,15 +1,20 @@
+import html
 import os
-import json
+import re
+from datetime import datetime, timedelta
+
 import streamlit as st
 from anthropic import Anthropic
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
 
 load_dotenv()
 
+PRODUCT_NAME = "聚才 · 想法验真"
+PRODUCT_TAGLINE = "10 分钟拿到一份可执行的 7 天启动合同，逼你找到第一个愿意付钱的人"
+
 st.set_page_config(
-    page_title="7天冷启动加速器",
-    page_icon="🚀",
+    page_title=PRODUCT_NAME,
+    page_icon="🧭",
     layout="centered",
     initial_sidebar_state="collapsed",
 )
@@ -17,51 +22,64 @@ st.set_page_config(
 api_key = os.getenv("ANTHROPIC_API_KEY")
 if not api_key:
     st.error("⚠️ 未检测到 ANTHROPIC_API_KEY")
-    st.code("在 Streamlit Cloud 的 Advanced Settings → Secrets 中配置\nANTHROPIC_API_KEY = \"sk-xxx\"", language="toml")
+    st.code(
+        '在 Streamlit Cloud 的 Advanced Settings → Secrets 中配置\n'
+        'ANTHROPIC_API_KEY = "sk-xxx"',
+        language="toml",
+    )
     st.stop()
 
 client = Anthropic(api_key=api_key)
 
-TASKS_FILE = os.path.join(os.path.dirname(__file__), "tasks.json")
+EXAMPLE_IDEAS = [
+    "帮本地餐饮老板做抖音团购引流，按效果抽成",
+    "给跨境电商卖家做产品详情页 + 投放素材，按件收费",
+    "面向程序员的一对一副业转型咨询，按小时收费",
+]
 
 
-def load_tasks():
-    if os.path.exists(TASKS_FILE):
-        with open(TASKS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-
-def save_tasks(tasks):
-    with open(TASKS_FILE, "w", encoding="utf-8") as f:
-        json.dump(tasks, f, ensure_ascii=False, indent=2)
+def init_session():
+    defaults = {
+        "step": 1,
+        "idea": "",
+        "monthly_target": "",
+        "followup_qs": [],
+        "followup_answers": {},
+        "context": {},
+        "report": None,
+        "tasks": {},
+    }
+    for key, val in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = val
 
 
 def get_pending_tasks():
-    tasks = load_tasks()
     today = datetime.now().strftime("%Y-%m-%d")
     pending = []
-    for task_id, task in tasks.items():
+    for task in st.session_state.tasks.values():
         due = task.get("due_date", "")
         if not task.get("done", False) and due and due <= today:
             pending.append(task)
     return pending
 
 
-def generate_followup_questions(idea):
-    prompt = f"""你是一位7天启动教练。用户要在一个新方向上7天内拿到第一个结果，你要用3个问题直接戳破他的执行障碍。
+def generate_followup_questions(idea, monthly_target, time_status, capital_level):
+    target_hint = monthly_target.strip() or "未填写"
+    prompt = f"""你是一位帮创业者「7 天内见到真金白银」的启动教练。用户要在新方向上快速验证，你要用 3 个问题戳破他的自我欺骗，逼他面对执行现实。
 
-用户的方向：{idea}
+【用户方向】{idea}
+【月入目标】{target_hint}
+【时间状态】{time_status}
+【资金量级】{capital_level}
 
-风格要求：
-- 每个问题都要具体到"名字""数字""日期"
-- 不要问"你的优势是什么"，要问"你上周跟哪个潜在客户聊过？"
-- 不要问"市场怎么样"，要问"如果明天就要收第一笔钱，你会找谁？"
-- 不要问"你怎么获客"，要问"你准备怎么找到第一个客户？具体第一步是什么？"
-- 不要问"你有多少资金"，要问"如果3个月没收入，你还能撑多久？"
-- 语气像有经验的老大哥，直接、不留面子，但为他好
+出题规则：
+1. 三个问题必须互不重复，分别聚焦：①第一个付费客户 ②竞争与差异化 ③现金流与止损
+2. 每个问题都要逼用户给出「人名 / 数字 / 日期 / 具体动作」至少一项
+3. 禁止空泛问题（优势、热情、市场大趋势）
+4. 语气：老练、直接、为他好，像见过太多烂项目的朋友
 
-输出格式（只输出问题，不要废话）：
+只输出三行，格式严格为：
 Q1: ...
 Q2: ...
 Q3: ...
@@ -69,82 +87,87 @@ Q3: ...
     try:
         resp = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=500,
-            temperature=0.7,
+            max_tokens=600,
+            temperature=0.6,
             messages=[{"role": "user", "content": prompt}],
         )
         text = resp.content[0].text
         questions = []
         for line in text.strip().split("\n"):
-            if line.strip().startswith("Q") and ":" in line:
-                questions.append(line.split(":", 1)[1].strip())
-        return questions[:3] if questions else default_questions()
+            line = line.strip()
+            if re.match(r"Q\d+\s*[:：]", line):
+                questions.append(re.split(r"[:：]", line, 1)[1].strip())
+        return questions[:3] if len(questions) >= 3 else default_questions()
     except Exception:
         return default_questions()
 
 
 def default_questions():
     return [
-        "你认识的最有可能成为第一个客户的人是谁？你现在能立刻发微信给他吗？",
-        "跟你想法最接近的、已经在做的人是谁？他们做得怎么样？",
-        "如果3个月没有收入，你的Plan B是什么？",
+        "写出 1 个最可能为你付钱的人（姓名或微信备注）——你打算本周几、用什么话联系他？",
+        "跟你最接近的竞品是谁？他定价多少、客户从哪来？你凭什么抢他的客户？",
+        "如果 3 个月零收入，你还能撑多久（月数 + 金额）？什么信号出现你会立刻停？",
     ]
 
 
-def generate_report(idea, followup_answers, time_status, capital_level):
+def generate_report(idea, followup_answers, time_status, capital_level, monthly_target):
     answers_text = "\n".join([f"- {k}: {v}" for k, v in followup_answers.items()])
+    target = monthly_target.strip() or "未说明"
 
-    prompt = f"""你是一位7天启动教练。用户要签一份"7天执行合同"，你必须给他一份极度具体、签了就得干的交付物。
+    prompt = f"""你是一位收费 500 元/小时的创业验证教练。用户签的是「7 天执行合同」——交付物必须极度具体，签了就得干，不能是鸡汤商业计划书。
 
-【输入信息】
-启动方向：{idea}
+【输入】
+方向：{idea}
+月入目标：{target}
 障碍回答：
 {answers_text}
-时间状态：{time_status}
-资金量级：{capital_level}
+时间：{time_status}
+资金：{capital_level}
 
-【输出格式】
-严格按以下结构输出（Markdown格式）。总字数不超过800字，没有废话。
+【输出要求】
+- 使用 Markdown，严格按下列 6 个一级标题输出（标题文字必须完全一致，带 # 号）
+- 总字数 900–1200 字
+- 禁止「综上所述」「建议你认真考虑」等空话
+- 数字要合理推算，信息不足就写「待验证」，不要编造人名
 
 # 教练判定
-用一句话给出判定：【建议7天冲刺 / 谨慎启动 / 建议换方向】
-理由不超过两句话。如果判定是"建议换方向"，直接说为什么，不要给后续动作。
+一行判定标签，必须是以下三者之一：【建议7天冲刺 / 谨慎启动 / 建议换方向】
+下一行写理由（2–3 句）。若判定为「建议换方向」，只写理由，不写后面章节的具体动作。
 
-# 7天三件事（本周必须完成）
-只列3条。每条格式：
-1. 【动作】做什么
-   - 对象：找谁/做什么
-   - 标准：做到什么程度算完成
-   - 时间：建议在哪天完成
-   - 验收：完成的具体标志是什么
+# 盈亏快算
+用 4–6 行 bullet 估算（基于用户目标与资金，可标注假设）：
+- 第一单 realistic 客单价：___ 元
+- 7 天内 realistic 收入上限：___ 元
+- 7 天必要现金支出：___ 元
+- 达到月入目标大约需要：___ 个客户 / 单
+- 与你时间状态的匹配度：高/中/低 + 一句原因
+
+# 7天三件事
+只列 3 条，每条必须包含「对象」「标准」「建议完成日（Day1–Day7）」「验收标志」：
+1. 【动作】...
+2. 【动作】...
+3. 【动作】...
 
 # 第一个客户
-逼用户写出一个具体人名。格式：
-- 最可能付费的人：______
-- 你准备怎么联系他：______
-- 他能付多少钱：______
-如果用户写不出人名，直接判定这个方向当前不成立，建议换方向。
+- 最可能付费的人：（根据用户回答推断，无人名则写「尚未锁定」并说明风险）
+- 联系话术要点：（1–2 句可直接复制发送的话）
+- 他能付多少钱：___ 元
+- 若 7 天内约不到有效对话：明确写「当前方向不成立」
 
 # 7天止损线
-- 时间止损：如果哪天还没结果，必须停？
-- 金钱止损：最多再烧多少钱？
-- 信号止损：出现什么信号必须立刻换方向？
+- 时间止损：
+- 金钱止损：
+- 信号止损：
 
 # 第8天
-如果7天内完成了以上3件事，第8天应该做什么？只写一句话。
-
-要求：
-- 不超过800字
-- 没有废话
-- 每个字都在逼用户行动
-- 如果信息不足，直接说"信息不足，无法判断"，不要硬编
+一句话：若 7 天三件事完成，第 8 天只做哪一件事。
 """
 
     try:
         resp = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=2000,
-            temperature=0.7,
+            max_tokens=2800,
+            temperature=0.55,
             messages=[{"role": "user", "content": prompt}],
         )
         return resp.content[0].text
@@ -152,38 +175,62 @@ def generate_report(idea, followup_answers, time_status, capital_level):
         return f"生成报告时出错：{e}"
 
 
+SECTION_HEADERS = {
+    "教练判定": ("教练判定", "# 教练判定", "## 教练判定"),
+    "盈亏快算": ("盈亏快算", "# 盈亏快算", "## 盈亏快算"),
+    "7天三件事": (
+        "7天三件事",
+        "# 7天三件事",
+        "## 7天三件事",
+        "# 本周3件事",
+        "## 本周3件事",
+    ),
+    "第一个客户": ("第一个客户", "# 第一个客户", "## 第一个客户"),
+    "7天止损线": (
+        "7天止损线",
+        "# 7天止损线",
+        "## 7天止损线",
+        "# 止损线",
+        "## 止损线",
+    ),
+    "第8天": ("第8天", "# 第8天", "## 第8天"),
+}
+
+
 def parse_report(report):
     sections = {}
     current_section = None
     current_content = []
 
+    header_map = {}
+    for key, variants in SECTION_HEADERS.items():
+        for v in variants:
+            header_map[v] = key
+            if v.startswith("#"):
+                header_map[v.lstrip("# ").strip() + "："] = key
+                header_map["【" + v.lstrip("# ").strip() + "】"] = key
+
     for line in report.split("\n"):
         stripped = line.strip()
-        # 支持 # 判定、## 判定、判定：等多种格式
-        if stripped.startswith(("# 教练判定", "## 教练判定", "教练判定：", "【教练判定】", "# 判定", "## 判定", "判定：", "【判定】")):
+        matched = None
+        for prefix, key in header_map.items():
+            if stripped == prefix or stripped.startswith(prefix):
+                matched = key
+                break
+        if not matched:
+            for key, variants in SECTION_HEADERS.items():
+                for v in variants:
+                    bare = v.lstrip("#").strip()
+                    if stripped.startswith(bare) and stripped[len(bare) :].strip() in ("", "：", ":"):
+                        matched = key
+                        break
+                if matched:
+                    break
+
+        if matched:
             if current_section:
                 sections[current_section] = "\n".join(current_content).strip()
-            current_section = "教练判定"
-            current_content = []
-        elif stripped.startswith(("# 7天三件事", "## 7天三件事", "7天三件事：", "【7天三件事】", "# 本周3件事", "## 本周3件事", "本周3件事：", "【本周3件事】")):
-            if current_section:
-                sections[current_section] = "\n".join(current_content).strip()
-            current_section = "7天三件事"
-            current_content = []
-        elif stripped.startswith(("# 第一个客户", "## 第一个客户", "第一个客户：", "【第一个客户】")):
-            if current_section:
-                sections[current_section] = "\n".join(current_content).strip()
-            current_section = "第一个客户"
-            current_content = []
-        elif stripped.startswith(("# 7天止损线", "## 7天止损线", "7天止损线：", "【7天止损线】", "# 止损线", "## 止损线", "止损线：", "【止损线】")):
-            if current_section:
-                sections[current_section] = "\n".join(current_content).strip()
-            current_section = "7天止损线"
-            current_content = []
-        elif stripped.startswith(("# 第8天", "## 第8天", "第8天：", "【第8天】")):
-            if current_section:
-                sections[current_section] = "\n".join(current_content).strip()
-            current_section = "第8天"
+            current_section = matched
             current_content = []
         elif current_section:
             current_content.append(line)
@@ -194,357 +241,372 @@ def parse_report(report):
     return sections
 
 
-# ===== Session State =====
-if "step" not in st.session_state:
-    st.session_state.step = 1
-if "idea" not in st.session_state:
-    st.session_state.idea = ""
-if "followup_qs" not in st.session_state:
-    st.session_state.followup_qs = []
-if "followup_answers" not in st.session_state:
-    st.session_state.followup_answers = {}
-if "context" not in st.session_state:
-    st.session_state.context = {}
-if "report" not in st.session_state:
-    st.session_state.report = None
+def verdict_style(verdict_text):
+    text = verdict_text or ""
+    if "换方向" in text or "不建议" in text:
+        return "red", "建议换方向"
+    if "谨慎" in text:
+        return "yellow", "谨慎启动"
+    return "green", "建议 7 天冲刺"
 
 
-# ===== Custom CSS =====
-st.markdown("""
+def render_progress(step):
+    labels = ["描述想法", "回答追问", "拿到合同"]
+    parts = []
+    for i, label in enumerate(labels, start=1):
+        if i < step:
+            parts.append(f'<span class="step done">✓ {label}</span>')
+        elif i == step:
+            parts.append(f'<span class="step active">{i}. {label}</span>')
+        else:
+            parts.append(f'<span class="step">{i}. {label}</span>')
+    st.markdown(
+        f'<div class="progress-bar">{"".join(parts)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def inject_css():
+    st.markdown(
+        """
 <style>
-    /* Hide default Streamlit elements */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stDeployButton {display: none !important;}
-
-    /* Global typography */
-    .main {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        max-width: 720px;
-        margin: 0 auto;
-    }
-
-    /* Hero section */
+    #MainMenu, footer, header { visibility: hidden; }
+    .stDeployButton { display: none !important; }
+    .block-container { padding-top: 1.5rem; max-width: 680px; }
     .hero {
         text-align: center;
-        padding: 3rem 1rem 2rem;
-        background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
-        border-radius: 16px;
-        margin-bottom: 2rem;
-        color: white;
+        padding: 2.25rem 1.25rem 1.75rem;
+        background: linear-gradient(145deg, #0c1222 0%, #1a365d 55%, #1e40af 100%);
+        border-radius: 20px;
+        margin-bottom: 1.25rem;
+        color: #f8fafc;
     }
-    .hero h1 {
-        font-size: 2.2rem;
-        font-weight: 700;
-        margin-bottom: 0.5rem;
-        letter-spacing: -0.02em;
+    .hero .brand { font-size: 0.8rem; letter-spacing: 0.12em; opacity: 0.75; margin-bottom: 0.35rem; }
+    .hero h1 { font-size: 1.85rem; font-weight: 700; margin: 0 0 0.5rem; letter-spacing: -0.02em; }
+    .hero .tagline { font-size: 0.95rem; opacity: 0.88; line-height: 1.55; margin: 0 auto 1.25rem; max-width: 28rem; }
+    .value-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.5rem;
+        text-align: left;
+        font-size: 0.78rem;
+        opacity: 0.92;
     }
-    .hero p {
-        font-size: 1rem;
-        opacity: 0.8;
-        margin: 0;
+    .value-item {
+        background: rgba(255,255,255,0.08);
+        border-radius: 10px;
+        padding: 0.55rem 0.6rem;
+        line-height: 1.35;
     }
-    .hero-icon {
-        font-size: 3rem;
-        margin-bottom: 0.5rem;
+    .value-item strong { display: block; font-size: 0.8rem; margin-bottom: 0.15rem; }
+    .progress-bar {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.35rem;
+        margin-bottom: 1.5rem;
+        font-size: 0.78rem;
     }
-
-    /* Cards */
-    .stCard {
-        background: white;
-        border-radius: 12px;
-        padding: 1.5rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
-        border: 1px solid #e2e8f0;
-        margin-bottom: 1rem;
+    .step {
+        flex: 1;
+        text-align: center;
+        padding: 0.45rem 0.25rem;
+        border-radius: 8px;
+        background: #f1f5f9;
+        color: #94a3b8;
     }
-
-    /* Input styling */
-    .stTextArea textarea {
-        border-radius: 10px !important;
-        border: 1.5px solid #cbd5e1 !important;
-        font-size: 1rem !important;
-        padding: 1rem !important;
-        line-height: 1.6 !important;
-    }
-    .stTextArea textarea:focus {
-        border-color: #2563eb !important;
-        box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
-    }
-
-    /* Selectbox styling */
-    .stSelectbox > div > div {
-        border-radius: 10px !important;
-        border: 1.5px solid #cbd5e1 !important;
-    }
-
-    /* Buttons */
-    .stButton > button {
-        border-radius: 10px !important;
-        font-weight: 600 !important;
-        padding: 0.75rem 1.5rem !important;
-        font-size: 1rem !important;
-        transition: all 0.2s ease !important;
-    }
-    .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
-        border: none !important;
-        box-shadow: 0 4px 14px rgba(37,99,235,0.3) !important;
-    }
-    .stButton > button[kind="primary"]:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 6px 20px rgba(37,99,235,0.4) !important;
-    }
-
-    /* Section titles */
+    .step.active { background: #dbeafe; color: #1d4ed8; font-weight: 600; }
+    .step.done { background: #dcfce7; color: #15803d; }
     .section-title {
-        font-size: 1.1rem;
+        font-size: 1.05rem;
         font-weight: 600;
-        color: #1e293b;
-        margin-bottom: 1rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 2px solid #e2e8f0;
+        color: #0f172a;
+        margin-bottom: 0.85rem;
     }
-
-    /* Verdict cards */
-    .verdict-green {
-        background: linear-gradient(135deg, #dcfce7, #f0fdf4);
-        border-left: 4px solid #22c55e;
+    .hint-box {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
         border-radius: 12px;
-        padding: 1.5rem;
+        padding: 0.85rem 1rem;
+        font-size: 0.88rem;
+        color: #475569;
+        line-height: 1.5;
         margin-bottom: 1rem;
     }
-    .verdict-yellow {
-        background: linear-gradient(135deg, #fef9c3, #fefce8);
-        border-left: 4px solid #eab308;
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin-bottom: 1rem;
-    }
-    .verdict-red {
-        background: linear-gradient(135deg, #fee2e2, #fef2f2);
-        border-left: 4px solid #ef4444;
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin-bottom: 1rem;
-    }
-
-    /* Info badges */
     .info-badge {
         display: inline-block;
-        background: #f1f5f9;
-        border-radius: 20px;
-        padding: 0.35rem 0.9rem;
-        font-size: 0.85rem;
-        color: #475569;
-        margin-bottom: 1rem;
-    }
-
-    /* Question cards */
-    .question-card {
-        background: #f8fafc;
-        border-radius: 12px;
-        padding: 1.25rem;
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 999px;
+        padding: 0.35rem 0.85rem;
+        font-size: 0.82rem;
+        color: #1e40af;
         margin-bottom: 0.75rem;
-        border: 1px solid #e2e8f0;
+        max-width: 100%;
+        word-break: break-word;
     }
-    .question-label {
-        font-size: 0.85rem;
-        font-weight: 600;
+    .question-block {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 1rem 1.1rem 0.25rem;
+        margin-bottom: 0.85rem;
+        box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+    }
+    .q-tag {
+        font-size: 0.72rem;
+        font-weight: 700;
         color: #2563eb;
-        margin-bottom: 0.5rem;
+        letter-spacing: 0.06em;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
     }
-
-    /* Action items */
-    .action-item {
-        background: white;
-        border-radius: 10px;
-        padding: 1rem 1.25rem;
-        margin-bottom: 0.75rem;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    .q-text { font-size: 0.98rem; color: #1e293b; margin: 0.35rem 0 0.5rem; line-height: 1.5; }
+    .verdict-green, .verdict-yellow, .verdict-red {
+        border-radius: 14px;
+        padding: 1.15rem 1.25rem;
+        margin-bottom: 1rem;
+        line-height: 1.55;
     }
-
-    /* Spinner */
-    .stSpinner > div {
-        border-color: #2563eb !important;
+    .verdict-green { background: linear-gradient(135deg,#dcfce7,#f0fdf4); border-left: 4px solid #22c55e; }
+    .verdict-yellow { background: linear-gradient(135deg,#fef9c3,#fefce8); border-left: 4px solid #eab308; }
+    .verdict-red { background: linear-gradient(135deg,#fee2e2,#fef2f2); border-left: 4px solid #ef4444; }
+    .verdict-label { font-size: 0.75rem; font-weight: 700; opacity: 0.7; margin-bottom: 0.35rem; }
+    .day8-card {
+        background: linear-gradient(135deg,#eff6ff,#f8fafc);
+        border: 1px dashed #93c5fd;
+        border-radius: 12px;
+        padding: 0.9rem 1rem;
+        margin-top: 0.5rem;
+        font-size: 0.95rem;
+        color: #1e3a8a;
     }
-
-    /* Divider */
-    hr {
-        border-color: #e2e8f0 !important;
-        margin: 2rem 0 !important;
-    }
-
-    /* Caption */
-    .stCaption {
-        color: #94a3b8 !important;
-        font-size: 0.8rem !important;
-    }
-
-    /* Expander */
-    .streamlit-expanderHeader {
-        font-size: 0.95rem !important;
-        color: #475569 !important;
-        background: #f8fafc !important;
+    .stTextArea textarea, .stTextInput input {
         border-radius: 10px !important;
+        font-size: 0.95rem !important;
     }
-
-    /* Date input */
-    .stDateInput > div > div {
-        border-radius: 8px !important;
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg,#2563eb,#1d4ed8) !important;
+        border: none !important;
+        border-radius: 10px !important;
+        font-weight: 600 !important;
+    }
+    @media (max-width: 640px) {
+        .value-grid { grid-template-columns: 1fr; }
+        .progress-bar { flex-direction: column; }
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+        unsafe_allow_html=True,
+    )
 
 
-# ===== Hero Section =====
-st.markdown("""
+def render_hero():
+    st.markdown(
+        f"""
 <div class="hero">
-    <div class="hero-icon">🚀</div>
-    <h1>7天冷启动加速器</h1>
-    <p>用7天从想法到第一个客户，AI 给你执行合同 + 盯着你拿到结果</p>
+    <div class="brand">JU CAI · IDEA VALIDATOR</div>
+    <h1>{html.escape(PRODUCT_NAME)}</h1>
+    <p class="tagline">{html.escape(PRODUCT_TAGLINE)}</p>
+    <div class="value-grid">
+        <div class="value-item"><strong>不是计划书</strong>逼你写出第一个客户是谁</div>
+        <div class="value-item"><strong>不是空谈</strong>7 天 3 件事 + 止损线</div>
+        <div class="value-item"><strong>不是 ChatGPT</strong>按你的时间与资金定制</div>
+    </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+        unsafe_allow_html=True,
+    )
 
 
-# ===== Pending Tasks Alert =====
+def extract_action_lines(actions_text):
+    lines = []
+    for line in actions_text.split("\n"):
+        s = line.strip()
+        if re.match(r"^[123][\.、\)]", s):
+            lines.append(s)
+    return lines[:3]
+
+
+init_session()
+inject_css()
+render_hero()
+render_progress(st.session_state.step)
+
 pending = get_pending_tasks()
 if pending:
     with st.container(border=True):
-        st.warning(f"⏰ 你有 {len(pending)} 件待办任务到期了")
+        st.warning(f"⏰ 你有 {len(pending)} 项任务已到期")
         for t in pending:
-            st.write(f"- {t['action']}（截止：{t['due_date']}）")
-        if st.button("标记全部完成", key="mark_all_done"):
-            tasks = load_tasks()
-            for t in tasks.values():
-                if not t.get("done", False) and t.get("due_date", "") <= datetime.now().strftime("%Y-%m-%d"):
+            st.write(f"- {t['action']}（截止 {t['due_date']}）")
+        if st.button("全部标为完成", key="mark_all_done"):
+            for t in st.session_state.tasks.values():
+                if not t.get("done") and t.get("due_date", "") <= datetime.now().strftime("%Y-%m-%d"):
                     t["done"] = True
-            save_tasks(tasks)
             st.rerun()
 
-
-# ===== STEP 1: Idea Input =====
+# —— Step 1 ——
 if st.session_state.step == 1:
-    st.markdown("<div class='section-title'>第一步：锁定你的启动方向</div>", unsafe_allow_html=True)
+    st.markdown('<div class="section-title">第一步：说清楚你想验证什么</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="hint-box">'
+        "写得越具体，报告越狠。建议包含：<b>卖给谁</b>、<b>解决什么问题</b>、<b>怎么收费</b>。"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     idea = st.text_area(
-        "",
+        "商业想法",
         value=st.session_state.idea,
-        placeholder="例如：帮二三线城市的制造业工厂做抖音短视频代运营，按月收费",
-        height=100,
-        label_visibility="collapsed",
+        placeholder="例：帮二三线制造业工厂做抖音短视频代运营，按月 8000 元 + 效果分成",
+        height=110,
+        label_visibility="visible",
+    )
+
+    st.caption("没灵感？点下面填入示例（可再改）")
+    ex_cols = st.columns(len(EXAMPLE_IDEAS))
+    for i, example in enumerate(EXAMPLE_IDEAS):
+        with ex_cols[i]:
+            if st.button(f"示例 {i + 1}", key=f"ex_{i}", use_container_width=True):
+                st.session_state.idea = example
+                st.rerun()
+
+    monthly_target = st.text_input(
+        "月入目标（选填，有助于盈亏测算）",
+        value=st.session_state.get("monthly_target", ""),
+        placeholder="例如：副业月入 8000 元",
     )
 
     col1, col2 = st.columns(2)
     with col1:
         time_status = st.selectbox(
-            "你的时间状态",
-            ["失业，可以全职投入", "自由职业，时间灵活", "在职，每天能挤出2-3小时", "在职，只能周末做"],
+            "可投入时间",
+            [
+                "失业，可全职投入",
+                "自由职业，时间灵活",
+                "在职，每天 2–3 小时",
+                "在职，只能周末",
+            ],
             key="time_status",
         )
     with col2:
         capital_level = st.selectbox(
-            "启动资金量级",
-            ["几乎为零（< 3000元）", "少量（3,000 - 10,000元）", "中等（1万 - 5万元）", "充裕（5万 - 10万元）", "充足（10万元以上）"],
+            "启动资金",
+            [
+                "几乎为零（< 3000 元）",
+                "少量（3千–1万）",
+                "中等（1万–5万）",
+                "充裕（5万–10万）",
+                "充足（10 万以上）",
+            ],
             key="capital_level",
         )
 
-    if st.button("下一步：拆解执行障碍", use_container_width=True, type="primary"):
-        if not idea.strip():
-            st.warning("请先描述你想做什么。")
+    if st.button("下一步：AI 追问 3 个关键问题 →", use_container_width=True, type="primary"):
+        if len(idea.strip()) < 12:
+            st.warning("请再写具体一点（至少 12 个字），例如客户是谁、怎么收费。")
         else:
-            st.session_state.idea = idea
+            st.session_state.idea = idea.strip()
+            st.session_state.monthly_target = monthly_target.strip()
             st.session_state.context["time_status"] = time_status
             st.session_state.context["capital_level"] = capital_level
-            # 清除旧的追问 widget key，避免新问题残留旧答案
             for k in list(st.session_state.keys()):
                 if k.startswith("fq_"):
                     del st.session_state[k]
             st.session_state.followup_answers = {}
-            with st.spinner("正在拆解你的执行障碍..."):
-                st.session_state.followup_qs = generate_followup_questions(idea)
+            with st.spinner("教练正在根据你的方向出题…"):
+                st.session_state.followup_qs = generate_followup_questions(
+                    st.session_state.idea,
+                    st.session_state.monthly_target,
+                    time_status,
+                    capital_level,
+                )
             st.session_state.step = 2
             st.rerun()
 
-
-# ===== STEP 2: Follow-up Questions =====
+# —— Step 2 ——
 elif st.session_state.step == 2:
-    st.markdown("<div class='section-title'>第二步：拆解执行障碍</div>", unsafe_allow_html=True)
+    st.markdown('<div class="section-title">第二步：回答 3 个执行障碍</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="info-badge">💡 {html.escape(st.session_state.idea)}</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption("诚实回答。编造名字和数字，报告也会骗你。")
 
-    st.markdown(f"<div class='info-badge'>💡 你的方向：{st.session_state.idea}</div>", unsafe_allow_html=True)
-    st.caption("这些问题逼你想清楚：谁付钱、怎么找到他、扛得住吗。答完就签7天合同。")
-
+    tags = ["第一个客户", "竞争与差异", "现金流与止损"]
     for i, q in enumerate(st.session_state.followup_qs):
-        st.markdown(f"<div class='question-label'>障碍 {i+1}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='font-size:1rem; color:#1e293b; margin-bottom:0.5rem; font-weight:500;'>{q}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="question-block">'
+            f'<div class="q-tag">{tags[i] if i < len(tags) else f"问题 {i+1}"}</div>'
+            f'<div class="q-text">{html.escape(q)}</div></div>',
+            unsafe_allow_html=True,
+        )
         st.text_area(
-            "",
+            f"回答 {i + 1}",
             value=st.session_state.followup_answers.get(q, ""),
             key=f"fq_{i}",
-            height=80,
-            placeholder="直接回答，不要绕弯子",
+            height=88,
+            placeholder="写人名、金额、日期、第一句话……",
             label_visibility="collapsed",
         )
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("← 返回修改方向", use_container_width=True):
+        if st.button("← 修改想法", use_container_width=True):
             st.session_state.step = 1
             st.rerun()
     with col2:
-        if st.button("生成7天执行合同", use_container_width=True, type="primary"):
-            answers = {}
-            for i, q in enumerate(st.session_state.followup_qs):
-                answers[q] = st.session_state.get(f"fq_{i}", "")
-            if not all(v.strip() for v in answers.values()):
-                st.warning("请回答所有障碍。")
+        if st.button("生成 7 天执行合同 →", use_container_width=True, type="primary"):
+            answers = {q: st.session_state.get(f"fq_{i}", "").strip() for i, q in enumerate(st.session_state.followup_qs)}
+            short = [q for q, a in answers.items() if len(a) < 8]
+            if short:
+                st.warning("每个问题请至少写 8 个字，越具体报告越有用。")
             else:
                 st.session_state.followup_answers = answers
-                with st.spinner("正在生成7天执行合同..."):
+                with st.spinner("正在生成你的 7 天执行合同（约 15–30 秒）…"):
                     st.session_state.report = generate_report(
                         st.session_state.idea,
                         st.session_state.followup_answers,
                         st.session_state.context["time_status"],
                         st.session_state.context["capital_level"],
+                        st.session_state.monthly_target,
                     )
                 st.session_state.step = 3
                 st.rerun()
 
-
-# ===== STEP 3: Report =====
+# —— Step 3 ——
 elif st.session_state.step == 3 and st.session_state.report:
     report = st.session_state.report
     sections = parse_report(report)
 
-    st.markdown("<div class='section-title'>你的验证路线图</div>", unsafe_allow_html=True)
+    st.markdown('<div class="section-title">你的 7 天执行合同</div>', unsafe_allow_html=True)
 
-    # 先取默认值，避免后面 action_lines 报错
+    verdict = sections.get("教练判定", "")
+    pnl = sections.get("盈亏快算", "")
     actions = sections.get("7天三件事", "")
     first_customer = sections.get("第一个客户", "")
     stop_loss = sections.get("7天止损线", "")
-    verdict = sections.get("教练判定", "")
+    day8 = sections.get("第8天", "")
 
-    # Fallback: if parsing failed completely, show raw report
     if not sections:
-        st.info("AI 返回的报告格式与预期不同，以下是原始内容：")
+        st.info("报告格式解析失败，以下为完整原文：")
         st.markdown(report)
     else:
         if verdict:
-            # Verdict card
-            if "换方向" in verdict or "不建议" in verdict:
-                st.markdown(f"<div class='verdict-red'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
-            elif "谨慎" in verdict:
-                st.markdown(f"<div class='verdict-yellow'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
-            else:
-                st.markdown(f"<div class='verdict-green'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
+            style, label = verdict_style(verdict)
+            safe = html.escape(verdict).replace("\n", "<br/>")
+            st.markdown(
+                f'<div class="verdict-{style}">'
+                f'<div class="verdict-label">教练判定 · {label}</div>{safe}</div>',
+                unsafe_allow_html=True,
+            )
+
+        if pnl:
+            with st.container(border=True):
+                st.subheader("📊 盈亏快算")
+                st.markdown(pnl)
 
         if actions:
             with st.container(border=True):
-                st.subheader("⚡ 本周3件事")
+                st.subheader("⚡ 7 天必做 3 件事")
                 st.markdown(actions)
 
         if first_customer:
@@ -557,54 +619,68 @@ elif st.session_state.step == 3 and st.session_state.report:
                 st.subheader("🛑 止损线")
                 st.markdown(stop_loss)
 
-    # Expandable details
-    with st.expander("📊 展开看详细推演（可选）"):
+        if day8:
+            st.markdown(
+                f'<div class="day8-card"><strong>第 8 天</strong><br/>{html.escape(day8)}</div>',
+                unsafe_allow_html=True,
+            )
+
+    st.download_button(
+        "📥 下载报告（Markdown）",
+        data=report,
+        file_name=f"想法验真_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+        mime="text/markdown",
+        use_container_width=True,
+    )
+
+    with st.expander("查看完整原文"):
         st.markdown(report)
 
-    # Action tracking
     st.divider()
-    st.markdown("<div class='section-title'>📅 任务追踪</div>", unsafe_allow_html=True)
-    st.caption("给这3件事设定完成日期，我们会提醒你")
+    st.markdown('<div class="section-title">📅 把 3 件事写进你的日历</div>', unsafe_allow_html=True)
+    st.caption("任务只保存在本次浏览器会话，关闭页面后需重新设定。")
 
-    action_lines = [line.strip() for line in actions.split("\n") if line.strip().startswith("1.") or line.strip().startswith("2.") or line.strip().startswith("3.")]
-
-    tasks_to_save = {}
-    for i, line in enumerate(action_lines[:3]):
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            st.markdown(f"<div class='action-item'>{line}</div>", unsafe_allow_html=True)
-        with c2:
-            due = st.date_input(
-                f"截止日期 {i+1}",
-                value=datetime.now() + timedelta(days=3),
-                key=f"due_{i}",
-            )
-            tasks_to_save[f"task_{datetime.now().timestamp()}_{i}"] = {
+    action_lines = extract_action_lines(actions)
+    if not action_lines:
+        st.info("未能从报告中解析出任务条目，请手动从上方复制。")
+    else:
+        tasks_to_save = {}
+        for i, line in enumerate(action_lines):
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                st.markdown(f"**{line}**")
+            with c2:
+                due = st.date_input(
+                    "截止",
+                    value=datetime.now().date() + timedelta(days=i + 2),
+                    key=f"due_{i}",
+                    label_visibility="collapsed",
+                )
+            tasks_to_save[f"task_{i}"] = {
                 "action": line,
                 "due_date": due.strftime("%Y-%m-%d"),
                 "done": False,
-                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             }
 
-    if st.button("保存任务并设置提醒", use_container_width=True):
-        existing = load_tasks()
-        existing.update(tasks_to_save)
-        save_tasks(existing)
-        st.success("✅ 任务已保存。下次打开时会提醒你。")
+        if st.button("保存到本次会话", use_container_width=True):
+            st.session_state.tasks.update(tasks_to_save)
+            st.success("已保存。下次在本页打开会看到到期提醒。")
 
     st.divider()
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("← 重新回答", use_container_width=True):
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("← 修改回答", use_container_width=True):
             st.session_state.step = 2
             st.rerun()
-    with col2:
-        if st.button("🔄 换个新想法", use_container_width=True):
+    with c2:
+        if st.button("🔄 验证新想法", use_container_width=True):
             st.session_state.step = 1
             st.session_state.idea = ""
+            st.session_state.monthly_target = ""
             st.session_state.followup_qs = []
             st.session_state.followup_answers = {}
             st.session_state.report = None
+            st.session_state.tasks = {}
             st.rerun()
 
-    st.caption("⚠️ 本报告由 AI 基于你提供的信息生成，仅供参考。")
+    st.caption("报告由 AI 根据你填写的内容生成，不构成投资或法律建议。重要决策请结合自身情况判断。")
