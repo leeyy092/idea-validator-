@@ -149,7 +149,7 @@ def friendly_api_error(exc):
 
 
 PRODUCT_NAME = "聚才 · 想法验真"
-PRODUCT_TAGLINE = "10 分钟拿到一份可执行的 7 天启动合同，逼你找到第一个愿意付钱的人"
+PRODUCT_TAGLINE = "10 分钟理清一个想法值不值得做，并拿到一份贴合你情况的 7 天行动建议"
 
 st.set_page_config(
     page_title=PRODUCT_NAME,
@@ -158,7 +158,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-_llm_provider, _, _, _llm_label, _ = resolve_llm()
+_llm_provider, _, _, _, _ = resolve_llm()
 if not _llm_provider:
     st.error("⚠️ 未检测到 AI 接口密钥")
     st.markdown(
@@ -216,7 +216,7 @@ def get_pending_tasks():
 
 def generate_followup_questions(idea, monthly_target, time_status, capital_level):
     target_hint = monthly_target.strip() or "未填写"
-    prompt = f"""你是一位帮创业者「7 天内见到真金白银」的启动教练。用户要在新方向上快速验证，你要用 3 个问题戳破他的自我欺骗，逼他面对执行现实。
+    prompt = f"""你是一位温和但专业的创业验证顾问。用户想验证一个新方向是否值得投入，请用 3 个问题帮他补全关键信息。
 
 【用户方向】{idea}
 【月入目标】{target_hint}
@@ -224,10 +224,10 @@ def generate_followup_questions(idea, monthly_target, time_status, capital_level
 【资金量级】{capital_level}
 
 出题规则：
-1. 三个问题必须互不重复，分别聚焦：①第一个付费客户 ②竞争与差异化 ③现金流与止损
-2. 每个问题都要逼用户给出「人名 / 数字 / 日期 / 具体动作」至少一项
-3. 禁止空泛问题（优势、热情、市场大趋势）
-4. 语气：老练、直接、为他好，像见过太多烂项目的朋友
+1. 三个问题分别聚焦：①目标用户与获客渠道 ②竞争与市场空间 ③时间与风险承受
+2. 问题应具体、可回答，但**不要**要求真实姓名、微信号、电话等隐私信息；用「哪类客户」「什么渠道」「大概预算」即可
+3. 禁止空泛问题（优势、热情、大趋势）
+4. 语气：尊重、务实、像愿意帮朋友把关的顾问，不要训斥或嘲讽
 
 只输出三行，格式严格为：
 Q1: ...
@@ -249,9 +249,9 @@ Q3: ...
 
 def default_questions():
     return [
-        "写出 1 个最可能为你付钱的人（姓名或微信备注）——你打算本周几、用什么话联系他？",
-        "跟你最接近的竞品是谁？他定价多少、客户从哪来？你凭什么抢他的客户？",
-        "如果 3 个月零收入，你还能撑多久（月数 + 金额）？什么信号出现你会立刻停？",
+        "你的理想客户是哪一类人（行业/场景）？你打算通过什么渠道接触到他们？",
+        "市面上类似服务大概怎么收费？你觉得自己的差异点在哪里？",
+        "在现有时间与资金下，如果 2–3 个月没有明显收入，你会怎么调整？",
     ]
 
 
@@ -259,53 +259,60 @@ def generate_report(idea, followup_answers, time_status, capital_level, monthly_
     answers_text = "\n".join([f"- {k}: {v}" for k, v in followup_answers.items()])
     target = monthly_target.strip() or "未说明"
 
-    prompt = f"""你是一位收费 500 元/小时的创业验证教练。用户签的是「7 天执行合同」——交付物必须极度具体，签了就得干，不能是鸡汤商业计划书。
+    prompt = f"""你是一位创业验证顾问。用户希望知道：这个想法是否值得继续投入，以及若继续，接下来 7 天可以做什么。请给出客观、可执行、尊重用户现实条件的建议。
 
 【输入】
 方向：{idea}
 月入目标：{target}
-障碍回答：
+补充回答：
 {answers_text}
 时间：{time_status}
 资金：{capital_level}
 
-【输出要求】
-- 使用 Markdown，严格按下列 6 个一级标题输出（标题文字必须完全一致，带 # 号）
-- 总字数 900–1200 字
-- 禁止「综上所述」「建议你认真考虑」等空话
-- 数字要合理推算，信息不足就写「待验证」，不要编造人名
+【原则】
+- 站在用户利益出发：不夸大机会，也不轻易否定；结合其时间与资金给可退可进的建议
+- **禁止**要求、推断或输出任何真实姓名、微信号、电话、住址
+- 数字可合理估算，信息不足写「待验证」，不要编造
+- 若方向风险较高，说明原因并给出替代路径（缩小范围、换验证方式等），而非简单一句「别做」
 
-# 教练判定
-一行判定标签，必须是以下三者之一：【建议7天冲刺 / 谨慎启动 / 建议换方向】
-下一行写理由（2–3 句）。若判定为「建议换方向」，只写理由，不写后面章节的具体动作。
+【输出要求】
+- Markdown，严格按下列 6 个一级标题输出（标题文字必须完全一致，带 # 号）
+- 总字数 900–1200 字
+- 禁止空话套话
+
+# 综合建议
+一行标签，必须是以下四者之一：【值得尝试 / 建议小步试水 / 建议先补信息 / 建议暂缓】
+下一行：2–3 句理由，说明为何给出该建议，并点明用户当前最大的机会或风险。
+若标签为「建议暂缓」，可简要说明更适合先做什么（调研、兼职验证、缩小范围等），语气保持尊重。
 
 # 盈亏快算
-用 4–6 行 bullet 估算（基于用户目标与资金，可标注假设）：
-- 第一单 realistic 客单价：___ 元
-- 7 天内 realistic 收入上限：___ 元
+用 4–6 行 bullet 估算（可标注假设）：
+- 合理客单价区间：___ 元
+- 7 天内 realistic 验证成果（不一定是收入）：___
 - 7 天必要现金支出：___ 元
-- 达到月入目标大约需要：___ 个客户 / 单
-- 与你时间状态的匹配度：高/中/低 + 一句原因
+- 达到月入目标大约需要：___ 单/客户（量级即可）
+- 与当前时间/资金的匹配度：高/中/低 + 一句原因
 
-# 7天三件事
-只列 3 条，每条必须包含「对象」「标准」「建议完成日（Day1–Day7）」「验收标志」：
+# 7天行动清单
+只列 3 条，每条含「做什么」「面向谁/什么渠道」「建议完成日（Day1–Day7）」「怎样算完成」：
 1. 【动作】...
 2. 【动作】...
 3. 【动作】...
+动作应低门槛、可验证，适合副业/小成本场景。
 
-# 第一个客户
-- 最可能付费的人：（根据用户回答推断，无人名则写「尚未锁定」并说明风险）
-- 联系话术要点：（1–2 句可直接复制发送的话）
-- 他能付多少钱：___ 元
-- 若 7 天内约不到有效对话：明确写「当前方向不成立」
+# 优先验证对象
+- 目标用户画像：（类型、场景，不要具体人名）
+- 建议验证方式：（如访谈、发样本、小范围试用等）
+- 合理付费预期：___ 元
+- 沟通思路示例：（1–2 句通用话术，不针对具体个人）
 
 # 7天止损线
 - 时间止损：
 - 金钱止损：
-- 信号止损：
+- 信号止损：（出现什么现象应暂停或调整方向）
 
-# 第8天
-一句话：若 7 天三件事完成，第 8 天只做哪一件事。
+# 下一步
+若 7 天行动清单完成，接下来最该做的一件事（一句话）。
 """
 
     try:
@@ -315,16 +322,26 @@ def generate_report(idea, followup_answers, time_status, capital_level, monthly_
 
 
 SECTION_HEADERS = {
-    "教练判定": ("教练判定", "# 教练判定", "## 教练判定"),
+    "综合建议": ("综合建议", "# 综合建议", "## 综合建议", "教练判定", "# 教练判定", "## 教练判定"),
     "盈亏快算": ("盈亏快算", "# 盈亏快算", "## 盈亏快算"),
-    "7天三件事": (
+    "7天行动清单": (
+        "7天行动清单",
+        "# 7天行动清单",
+        "## 7天行动清单",
         "7天三件事",
         "# 7天三件事",
         "## 7天三件事",
         "# 本周3件事",
         "## 本周3件事",
     ),
-    "第一个客户": ("第一个客户", "# 第一个客户", "## 第一个客户"),
+    "优先验证对象": (
+        "优先验证对象",
+        "# 优先验证对象",
+        "## 优先验证对象",
+        "第一个客户",
+        "# 第一个客户",
+        "## 第一个客户",
+    ),
     "7天止损线": (
         "7天止损线",
         "# 7天止损线",
@@ -332,7 +349,7 @@ SECTION_HEADERS = {
         "# 止损线",
         "## 止损线",
     ),
-    "第8天": ("第8天", "# 第8天", "## 第8天"),
+    "下一步": ("下一步", "# 下一步", "## 下一步", "第8天", "# 第8天", "## 第8天"),
 }
 
 
@@ -382,15 +399,15 @@ def parse_report(report):
 
 def verdict_style(verdict_text):
     text = verdict_text or ""
-    if "换方向" in text or "不建议" in text:
-        return "red", "建议换方向"
-    if "谨慎" in text:
-        return "yellow", "谨慎启动"
-    return "green", "建议 7 天冲刺"
+    if "暂缓" in text or "换方向" in text or "不建议" in text:
+        return "red", "建议暂缓"
+    if "补信息" in text or "小步" in text or "试水" in text or "谨慎" in text:
+        return "yellow", "建议小步试水"
+    return "green", "值得尝试"
 
 
 def render_progress(step):
-    labels = ["描述想法", "回答追问", "拿到合同"]
+    labels = ["描述想法", "补充信息", "查看方案"]
     parts = []
     for i, label in enumerate(labels, start=1):
         if i < step:
@@ -546,9 +563,9 @@ def render_hero():
     <h1>{html.escape(PRODUCT_NAME)}</h1>
     <p class="tagline">{html.escape(PRODUCT_TAGLINE)}</p>
     <div class="value-grid">
-        <div class="value-item"><strong>不是计划书</strong>逼你写出第一个客户是谁</div>
-        <div class="value-item"><strong>不是空谈</strong>7 天 3 件事 + 止损线</div>
-        <div class="value-item"><strong>不是 ChatGPT</strong>按你的时间与资金定制</div>
+        <div class="value-item"><strong>不是计划书</strong>帮你看清机会与风险</div>
+        <div class="value-item"><strong>不是空谈</strong>7 天行动清单 + 止损线</div>
+        <div class="value-item"><strong>尊重隐私</strong>无需填写真实姓名联系方式</div>
     </div>
 </div>
 """,
@@ -568,7 +585,6 @@ def extract_action_lines(actions_text):
 init_session()
 inject_css()
 render_hero()
-st.caption(f"AI 引擎：{_llm_label}")
 render_progress(st.session_state.step)
 
 pending = get_pending_tasks()
@@ -588,7 +604,10 @@ if st.session_state.step == 1:
     st.markdown('<div class="section-title">第一步：说清楚你想验证什么</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="hint-box">'
-        "写得越具体，报告越狠。建议包含：<b>卖给谁</b>、<b>解决什么问题</b>、<b>怎么收费</b>。"
+        "写得越具体，建议越贴切。建议包含：<b>卖给谁</b>、<b>解决什么问题</b>、<b>怎么收费</b>。"
+        "</div>"
+        '<div class="hint-box" style="margin-top:0.5rem;">'
+        "🔒 无需填写真实姓名、电话或微信号，用客户类型和场景描述即可。"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -640,7 +659,7 @@ if st.session_state.step == 1:
             key="capital_level",
         )
 
-    if st.button("下一步：AI 追问 3 个关键问题 →", use_container_width=True, type="primary"):
+    if st.button("下一步：补充 3 个关键问题 →", use_container_width=True, type="primary"):
         if len(idea.strip()) < 12:
             st.warning("请再写具体一点（至少 12 个字），例如客户是谁、怎么收费。")
         else:
@@ -652,7 +671,7 @@ if st.session_state.step == 1:
                 if k.startswith("fq_"):
                     del st.session_state[k]
             st.session_state.followup_answers = {}
-            with st.spinner("教练正在根据你的方向出题…"):
+            with st.spinner("正在根据你的情况准备问题…"):
                 st.session_state.followup_qs = generate_followup_questions(
                     st.session_state.idea,
                     st.session_state.monthly_target,
@@ -664,18 +683,18 @@ if st.session_state.step == 1:
 
 # —— Step 2 ——
 elif st.session_state.step == 2:
-    st.markdown('<div class="section-title">第二步：回答 3 个执行障碍</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">第二步：补充 3 个关键信息</div>', unsafe_allow_html=True)
     st.markdown(
         f'<div class="info-badge">💡 {html.escape(st.session_state.idea)}</div>',
         unsafe_allow_html=True,
     )
-    st.caption("诚实回答。编造名字和数字，报告也会骗你。")
+    st.caption("按你的真实情况回答即可，不必填写具体人名或联系方式。")
 
     if st.session_state.get("api_error"):
         st.warning(st.session_state.api_error)
-        st.caption("当前使用默认 3 个问题；修好 API Key 后可返回第一步重新生成专属问题。")
+        st.caption("当前使用默认 3 个问题；配置好 API Key 后可返回第一步重新生成。")
 
-    tags = ["第一个客户", "竞争与差异", "现金流与止损"]
+    tags = ["目标用户", "竞争与市场", "时间与风险"]
     for i, q in enumerate(st.session_state.followup_qs):
         st.markdown(
             f'<div class="question-block">'
@@ -688,7 +707,7 @@ elif st.session_state.step == 2:
             value=st.session_state.followup_answers.get(q, ""),
             key=f"fq_{i}",
             height=88,
-            placeholder="写人名、金额、日期、第一句话……",
+            placeholder="例如：目标客户类型、渠道、预算范围、你的顾虑……",
             label_visibility="collapsed",
         )
 
@@ -698,14 +717,14 @@ elif st.session_state.step == 2:
             st.session_state.step = 1
             st.rerun()
     with col2:
-        if st.button("生成 7 天执行合同 →", use_container_width=True, type="primary"):
+        if st.button("生成 7 天行动方案 →", use_container_width=True, type="primary"):
             answers = {q: st.session_state.get(f"fq_{i}", "").strip() for i, q in enumerate(st.session_state.followup_qs)}
             short = [q for q, a in answers.items() if len(a) < 8]
             if short:
                 st.warning("每个问题请至少写 8 个字，越具体报告越有用。")
             else:
                 st.session_state.followup_answers = answers
-                with st.spinner("正在生成你的 7 天执行合同（约 15–30 秒）…"):
+                with st.spinner("正在生成你的验证方案（约 15–30 秒）…"):
                     st.session_state.report = generate_report(
                         st.session_state.idea,
                         st.session_state.followup_answers,
@@ -720,7 +739,7 @@ elif st.session_state.step == 2:
 elif st.session_state.step == 3 and st.session_state.report:
     report = st.session_state.report
 
-    st.markdown('<div class="section-title">你的 7 天执行合同</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">你的 7 天验证方案</div>', unsafe_allow_html=True)
 
     if report.startswith("<!--API_ERROR-->"):
         st.error(report.replace("<!--API_ERROR-->\n", "", 1))
@@ -732,12 +751,12 @@ elif st.session_state.step == 3 and st.session_state.report:
 
     sections = parse_report(report)
 
-    verdict = sections.get("教练判定", "")
+    verdict = sections.get("综合建议", "") or sections.get("教练判定", "")
     pnl = sections.get("盈亏快算", "")
-    actions = sections.get("7天三件事", "")
-    first_customer = sections.get("第一个客户", "")
+    actions = sections.get("7天行动清单", "") or sections.get("7天三件事", "")
+    target_audience = sections.get("优先验证对象", "") or sections.get("第一个客户", "")
     stop_loss = sections.get("7天止损线", "")
-    day8 = sections.get("第8天", "")
+    next_step = sections.get("下一步", "") or sections.get("第8天", "")
 
     if not sections:
         st.info("报告格式解析失败，以下为完整原文：")
@@ -748,7 +767,7 @@ elif st.session_state.step == 3 and st.session_state.report:
             safe = html.escape(verdict).replace("\n", "<br/>")
             st.markdown(
                 f'<div class="verdict-{style}">'
-                f'<div class="verdict-label">教练判定 · {label}</div>{safe}</div>',
+                f'<div class="verdict-label">综合建议 · {label}</div>{safe}</div>',
                 unsafe_allow_html=True,
             )
 
@@ -759,22 +778,22 @@ elif st.session_state.step == 3 and st.session_state.report:
 
         if actions:
             with st.container(border=True):
-                st.subheader("⚡ 7 天必做 3 件事")
+                st.subheader("⚡ 7 天行动清单")
                 st.markdown(actions)
 
-        if first_customer:
+        if target_audience:
             with st.container(border=True):
-                st.subheader("👤 第一个客户")
-                st.markdown(first_customer)
+                st.subheader("🎯 优先验证对象")
+                st.markdown(target_audience)
 
         if stop_loss:
             with st.container(border=True):
                 st.subheader("🛑 止损线")
                 st.markdown(stop_loss)
 
-        if day8:
+        if next_step:
             st.markdown(
-                f'<div class="day8-card"><strong>第 8 天</strong><br/>{html.escape(day8)}</div>',
+                f'<div class="day8-card"><strong>下一步</strong><br/>{html.escape(next_step)}</div>',
                 unsafe_allow_html=True,
             )
 
@@ -837,4 +856,4 @@ elif st.session_state.step == 3 and st.session_state.report:
             st.session_state.tasks = {}
             st.rerun()
 
-    st.caption("报告由 AI 根据你填写的内容生成，不构成投资或法律建议。重要决策请结合自身情况判断。")
+    st.caption("报告由 AI 根据你填写的内容生成，仅供参考。无需也请勿填写他人真实姓名或联系方式。")
