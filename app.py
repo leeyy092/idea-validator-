@@ -57,6 +57,45 @@ def resolve_llm():
     return None, None, None, None, None
 
 
+def chat_completion_http(base_url, api_key, model, prompt, max_tokens, temperature, extra_headers=None):
+    """用 Python 内置库调用 OpenAI 兼容接口，无需安装 openai 包。"""
+    import json
+    import urllib.error
+    import urllib.request
+
+    url = base_url.rstrip("/") + "/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {e.code}: {body}") from e
+
+    try:
+        return data["choices"][0]["message"]["content"] or ""
+    except (KeyError, IndexError, TypeError) as e:
+        raise RuntimeError(f"API 返回格式异常: {data}") from e
+
+
 def call_llm(prompt, max_tokens=600, temperature=0.6):
     provider, api_key, model, _, _ = resolve_llm()
     if not provider:
@@ -74,27 +113,24 @@ def call_llm(prompt, max_tokens=600, temperature=0.6):
         )
         return resp.content[0].text
 
-    from openai import OpenAI
-
     base_urls = {
         "moonshot": get_secret("MOONSHOT_BASE_URL") or "https://api.moonshot.cn/v1",
         "deepseek": "https://api.deepseek.com",
         "openrouter": "https://openrouter.ai/api/v1",
     }
-    kwargs = {"api_key": api_key, "base_url": base_urls[provider]}
+    extra = None
     if provider == "openrouter":
-        kwargs["default_headers"] = {
-            "HTTP-Referer": "https://jucaiyy.com",
-            "X-Title": "聚才想法验真",
-        }
-    client = OpenAI(**kwargs)
-    resp = client.chat.completions.create(
-        model=model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        messages=[{"role": "user", "content": prompt}],
+        extra = {"HTTP-Referer": "https://jucaiyy.com", "X-Title": "聚才想法验真"}
+
+    return chat_completion_http(
+        base_urls[provider],
+        api_key,
+        model,
+        prompt,
+        max_tokens,
+        temperature,
+        extra_headers=extra,
     )
-    return resp.choices[0].message.content or ""
 
 
 def friendly_api_error(exc):
@@ -774,7 +810,7 @@ elif st.session_state.step == 3 and st.session_state.report:
                     label_visibility="collapsed",
                 )
             tasks_to_save[f"task_{i}"] = {
-                "action": line,
+                "action": line,                
                 "due_date": due.strftime("%Y-%m-%d"),
                 "done": False,
             }
@@ -783,13 +819,13 @@ elif st.session_state.step == 3 and st.session_state.report:
             st.session_state.tasks.update(tasks_to_save)
             st.success("已保存。下次在本页打开会看到到期提醒。")
 
-    st.divider()
+    st.divider()            
     c1, c2 = st.columns(2)
-    with c1:
+    with c1:            
         if st.button("← 修改回答", use_container_width=True):
             st.session_state.step = 2
-            st.rerun()
-    with c2:
+            st.rerun()            
+    with c2:            
         if st.button("🔄 验证新想法", use_container_width=True):
             st.session_state.step = 1
             st.session_state.idea = ""
@@ -798,6 +834,6 @@ elif st.session_state.step == 3 and st.session_state.report:
             st.session_state.followup_answers = {}
             st.session_state.report = None
             st.session_state.tasks = {}
-            st.rerun()
+            st.rerun()            
 
     st.caption("报告由 AI 根据你填写的内容生成，不构成投资或法律建议。重要决策请结合自身情况判断。")
