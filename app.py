@@ -42,7 +42,8 @@ def get_pending_tasks():
     today = datetime.now().strftime("%Y-%m-%d")
     pending = []
     for task_id, task in tasks.items():
-        if not task.get("done", False) and task.get("due_date", "") <= today:
+        due = task.get("due_date", "")
+        if not task.get("done", False) and due and due <= today:
             pending.append(task)
     return pending
 
@@ -519,47 +520,45 @@ elif st.session_state.step == 3 and st.session_state.report:
     report = st.session_state.report
     sections = parse_report(report)
 
-    st.markdown("<div class='section-title'>你的7天执行合同</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>你的验证路线图</div>", unsafe_allow_html=True)
 
     # 先取默认值，避免后面 action_lines 报错
-    actions = sections.get("7天三件事", sections.get("本周3件事", ""))
+    actions = sections.get("7天三件事", "")
     first_customer = sections.get("第一个客户", "")
-    stop_loss = sections.get("7天止损线", sections.get("止损线", ""))
-    verdict = sections.get("教练判定", sections.get("判定", ""))
-    day8 = sections.get("第8天", "")
+    stop_loss = sections.get("7天止损线", "")
+    verdict = sections.get("教练判定", "")
 
     # Fallback: if parsing failed completely, show raw report
     if not sections:
         st.info("AI 返回的报告格式与预期不同，以下是原始内容：")
         st.markdown(report)
     else:
-        # Verdict card
-        if "换方向" in verdict or "不建议" in verdict:
-            st.markdown(f"<div class='verdict-red'><strong>🎯 教练判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
-        elif "谨慎" in verdict:
-            st.markdown(f"<div class='verdict-yellow'><strong>🎯 教练判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div class='verdict-green'><strong>🎯 教练判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
+        if verdict:
+            # Verdict card
+            if "换方向" in verdict or "不建议" in verdict:
+                st.markdown(f"<div class='verdict-red'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
+            elif "谨慎" in verdict:
+                st.markdown(f"<div class='verdict-yellow'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<div class='verdict-green'><strong>🎯 判定</strong><br/>{verdict.replace(chr(10), '<br/>')}</div>", unsafe_allow_html=True)
 
-        with st.container(border=True):
-            st.subheader("⚡ 7天三件事（签了就得干）")
-            st.markdown(actions)
-
-        with st.container(border=True):
-            st.subheader("👤 第一个客户")
-            st.markdown(first_customer)
-
-        with st.container(border=True):
-            st.subheader("🛑 7天止损线")
-            st.markdown(stop_loss)
-
-        if day8:
+        if actions:
             with st.container(border=True):
-                st.subheader("📅 第8天")
-                st.markdown(day8)
+                st.subheader("⚡ 本周3件事")
+                st.markdown(actions)
+
+        if first_customer:
+            with st.container(border=True):
+                st.subheader("👤 第一个客户")
+                st.markdown(first_customer)
+
+        if stop_loss:
+            with st.container(border=True):
+                st.subheader("🛑 止损线")
+                st.markdown(stop_loss)
 
     # Expandable details
-    with st.expander("📊 展开看完整合同（可选）"):
+    with st.expander("📊 展开看详细推演（可选）"):
         st.markdown(report)
 
     # Action tracking
@@ -593,23 +592,6 @@ elif st.session_state.step == 3 and st.session_state.report:
         save_tasks(existing)
         st.success("✅ 任务已保存。下次打开时会提醒你。")
 
-    # CTA: 陪跑入口
-    st.divider()
-    with st.container(border=True):
-        st.subheader("💬 需要人盯着你跑完这7天？")
-        st.markdown("""
-        很多人卡在"知道该做什么，但做不到"。
-
-        **7天陪跑（99元）包含：**
-        - 每天检查你完成了哪件
-        - 卡住了随时问，当天给解法
-        - 第7天复盘，没结果退一半
-
-        **加我微信，备注"7天"：** `你的微信号`
-
-        *(把上面"你的微信号"改成你的真实微信，用户才能找到你)*
-        """)
-
     st.divider()
     col1, col2 = st.columns(2)
     with col1:
@@ -617,7 +599,7 @@ elif st.session_state.step == 3 and st.session_state.report:
             st.session_state.step = 2
             st.rerun()
     with col2:
-        if st.button("🔄 换个新方向", use_container_width=True):
+        if st.button("🔄 换个新想法", use_container_width=True):
             st.session_state.step = 1
             st.session_state.idea = ""
             st.session_state.followup_qs = []
@@ -625,4 +607,4 @@ elif st.session_state.step == 3 and st.session_state.report:
             st.session_state.report = None
             st.rerun()
 
-    st.caption("⚠️ 本合同由 AI 基于你提供的信息生成，签完就得干。")
+    st.caption("⚠️ 本报告由 AI 基于你提供的信息生成，仅供参考。")
